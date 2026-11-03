@@ -201,6 +201,7 @@ function paintTakeover() {
 
 // ---- Room display (TV) -----------------------------------------------
 function startRoom(runId) {
+  audio.keepAwake(true); // TV/laptop screen stays on; re-requested whenever the tab is visible again
   if (runId) { follow(runId); return; }
   idleRoom();
   S.unwatchLive = store.watchLiveRuns((runs) => {
@@ -434,7 +435,7 @@ function bindControls() {
     else if (k === 'l' || k === 'L') act('lock');
   };
   document.addEventListener('keydown', S.onKey);
-  S.onVis = () => { if (document.visibilityState === 'visible' && S) { audio.keepAwake(S.mode !== 'start'); S.lastSeg = S.lastSeg; loop(); reschedule(); } };
+  S.onVis = () => { if (document.visibilityState === 'visible' && S) { audio.keepAwake(S.mode !== 'start' || S.started); S.lastSeg = S.lastSeg; loop(); reschedule(); } };
   document.addEventListener('visibilitychange', S.onVis);
 }
 
