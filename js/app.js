@@ -104,7 +104,7 @@ function viewLogin() {
       <button class="btn primary lg" style="width:100%" type="submit">Sign in</button>
     </form>
     <div class="row between"><button class="btn ghost sm" id="forgot">Forgot password?</button><button class="btn ghost sm" id="su">Create an account</button></div>
-    <div class="small muted">Accounts are limited to <b>@mapsedu.org</b> emails and approved program staff. School Google accounts can use the Google button.</div>
+    <div class="small muted">Accounts are limited to <b>@mapsedu.org</b> emails, approved program staff, and people an admin coach has invited.</div>
   </div></div>`;
   $('#g').onclick = () => store.signInGoogle().catch(e => toast(authMsg(e), 'error'));
   $('#ef').onsubmit = (e) => { e.preventDefault(); store.signInEmail($('#em').value, $('#pw').value).catch(err => toast(authMsg(err), 'error')); };
@@ -126,7 +126,9 @@ function signUpModal() {
   $('#suf').onsubmit = async (e) => {
     e.preventDefault();
     const em = $('#se').value.trim();
-    if (!store.isAllowedEmail(em)) return toast('That email isn\'t approved. Use your @mapsedu.org address or ask Coach Stutting to add you.', 'error');
+    // Invited people may use any email. The invite list can't be read before
+    // sign-in, so the security rules make the final call after the email is verified.
+    if (!store.isAllowedEmail(em) && !(await confirmBox('Were you invited?', 'This email isn\'t @mapsedu.org or on the staff list. It will only work if an admin coach has invited this exact address.', 'I was invited, continue', false))) return;
     try { await store.signUp(em, $('#sp').value, $('#sn').value.trim()); $('.overlay')?.remove(); toast('Check your email for the confirmation link', 'success'); }
     catch (err) { toast(authMsg(err), 'error'); }
   };
@@ -136,7 +138,7 @@ function viewPending() {
   if (user.role === 'denied') {
     app.innerHTML = `<div class="login"><div class="card pad-lg stack"><div class="tiny">${esc(TEAM_NAME)}</div><h1>Not on the list</h1>
       <p><b>${esc(user.email)}</b> isn't approved for this program. Accounts are limited to @mapsedu.org emails and approved program staff.</p>
-      <p class="small muted">If you're on staff, ask an admin coach to send you an invite, then sign in again.</p>
+      <p class="small muted">Ask an admin coach to add <b>${esc(user.email)}</b> under Admin → Invite by email, then sign out and back in.</p>
       <button class="btn danger" id="out">Sign out</button></div></div>`;
     $('#out').onclick = () => store.signOut(); return;
   }
@@ -470,7 +472,7 @@ async function viewAdmin() {
     <div class="section-title">Invite by email</div>
     <div class="card"><form class="row wrap" id="inv" style="gap:8px"><input class="input" type="email" id="ie" placeholder="coach@school.org" required style="max-width:320px">
       <select class="input" id="ir" style="width:auto">${['coach', 'admin', 'viewer', 'athlete'].map(r => `<option value="${r}">${ROLE_LABEL[r]}</option>`).join('')}</select><button class="btn primary">Add invite</button></form>
-      <div class="small muted" style="margin-top:8px">They sign in with Google (or an email account you create in Firebase) and get this role on their first sign-in.</div>
+      <div class="small muted" style="margin-top:8px">Works for any email, even outside the list. Tell them to open the site and either <b>Sign in with Google</b> (Gmail) or <b>Create an account</b> with this exact email. They'll get this role as soon as their email is confirmed. Already tried and got "Not on the list"? Just add the invite and have them sign out and back in.</div>
       ${invites.length ? `<table class="list" style="margin-top:10px">${invites.map(i => `<tr><td>${esc(i.id)}</td><td>${ROLE_LABEL[i.role]}</td><td style="text-align:right"><button class="btn sm ghost" data-delinv="${esc(i.id)}">Remove</button></td></tr>`).join('')}</table>` : ''}</div>
     <div class="section-title">Setup</div>
     <div class="grid c2">
