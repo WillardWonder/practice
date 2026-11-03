@@ -1,0 +1,140 @@
+rules_version = '2';
+
+// Roles: owner > admin > coach > viewer > athlete > pending
+//  owner   – hard-coded program owner (verified Google email below)
+//  admin   – head/admin coaches: everything, including managing users
+//  coach   – build, run, and share practices; add drills
+//  viewer  – read-only access to practices, library, history, live runs
+//  athlete – sees practices shared with athletes and follows live runs
+//  pending – signed in but not yet approved: no access
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function myEmail() { return request.auth.token.get('email', '').lower(); }
+    function isOwnerEmail() {
+      return signedIn()
+        && request.auth.token.get('email_verified', false) == true
+        && myEmail() == 'stutting.josh@gmail.com';
+    }
+    function me() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function role() {
+      return isOwnerEmail() ? 'owner'
+        : (signedIn() && exists(me()) ? get(me()).data.role : 'none');
+    }
+    function isAdmin()  { return role() in ['owner', 'admin']; }
+    function isCoach()  { return role() in ['owner', 'admin', 'coach']; }
+    function isStaff()  { return role() in ['owner', 'admin', 'coach', 'viewer']; }
+    function isMember() { return role() in ['owner', 'admin', 'coach', 'viewer', 'athlete']; }
+    function assignable(r) { return r in ['admin', 'coach', 'viewer', 'athlete', 'pending']; }
+
+    // ---- Who may sign up (keep in sync with js/config.js) ----
+    function staffEmails() {
+      return ['t.derleth@huber.com', 'edward.fuchs@mapsedu.org', 'robert.klug@mapsedu.org',
+              'reneekrueger58@yahoo.com', 'kent.reinhardt@wisconsinpublicservice.com',
+              'jessesevert@outlook.com', 'stutting.josh@gmail.com', 'adamweise2015@gmail.com',
+              'bumweixie@gmail.com'];
+    }
+    function verified() { return request.auth.token.get('email_verified', false) == true; }
+    function hasInvite() { return exists(/databases/$(database)/documents/invites/$(myEmail())); }
+    function allowedSignup() {
+      return myEmail().matches('.*@mapsedu[.]org') || myEmail() in staffEmails() || hasInvite();
+    }
+    function selfRole() {
+      return isOwnerEmail() ? 'owner'
+        : (hasInvite() ? get(/databases/$(database)/documents/invites/$(myEmail())).data.role
+        : (myEmail() in staffEmails() ? 'coach' : 'pending'));
+    }
+
+    function inviteRole() {
+      return exists(/databases/$(database)/documents/invites/$(myEmail()))
+        ? get(/databases/$(database)/documents/invites/$(myEmail())).data.role
+        : 'pending';
+    }
+
+    // ---- Users -------------------------------------------------------
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isStaff());
+
+      // First sign-in: only a verified email that is @mapsedu.org, on the
+      // staff list, or invited may create a profile, and only with the role
+      // that rule grants. Everyone else gets no profile and so no access.
+      allow create: if (signedIn() && request.auth.uid == uid && verified() && allowedSignup()
+                    && request.resource.data.email == myEmail()
+                    && request.resource.data.role == selfRole())
+                 || (isAdmin() && assignable(request.resource.data.role));
+
+      // You may change your own name/prefs, never your role.
+      allow update: if (signedIn() && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'prefs', 'lastSeen']))
+                 || (isAdmin() && resource.data.role != 'owner' && assignable(request.resource.data.role));
+
+      allow delete: if isAdmin() && resource.data.role != 'owner';
+    }
+
+    // ---- Invites (keyed by lower-case email) ---------------------------
+    match /invites/{email} {
+      allow read: if isAdmin() || (signedIn() && myEmail() == email);
+      allow write: if isAdmin() && (request.resource == null || assignable(request.resource.data.role));
+    }
+
+    // ---- Drill library -------------------------------------------------
+    match /drills/{id} {
+      allow read: if isMember();
+      allow create: if isCoach() && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.title is string && request.resource.data.title.size() < 120;
+      allow update: if isAdmin() || (isCoach() && resource.data.createdBy == request.auth.uid
+                    && request.resource.data.createdBy == resource.data.createdBy);
+      allow delete: if isAdmin() || (isCoach() && resource.data.createdBy == request.auth.uid);
+    }
+
+    // ---- Practices -----------------------------------------------------
+    match /practices/{id} {
+      // 'public' practices can be opened by anyone holding the share link.
+      allow get: if resource.data.visibility == 'public'
+                 || isStaff()
+                 || (isMember() && resource.data.visibility == 'athletes');
+      allow list: if isStaff()
+                  || (isMember() && resource.data.visibility in ['athletes', 'public']);
+
+      allow create: if isCoach() && request.resource.data.ownerUid == request.auth.uid
+                    && validPractice();
+      allow update: if validPractice() && (
+                       isAdmin()
+                    || (isCoach() && resource.data.ownerUid == request.auth.uid
+                        && request.resource.data.ownerUid == resource.data.ownerUid)
+                    || (isCoach() && resource.data.get('coEdit', false) == true
+                        && request.resource.data.ownerUid == resource.data.ownerUid));
+      allow delete: if isAdmin() || (isCoach() && resource.data.ownerUid == request.auth.uid);
+    }
+    function validPractice() {
+      let d = request.resource.data;
+      return d.title is string && d.title.size() <= 140
+        && d.blocks is list && d.blocks.size() <= 150
+        && d.visibility in ['team', 'athletes', 'public'];
+    }
+
+    // ---- Runs (live sessions + permanent history) ------------------------
+    // While live: any coach may send commands or take the remote.
+    // Once completed/ended the record is frozen: only reflection fields
+    // (notes, attendance, rating) can change. Only admins can delete.
+    match /runs/{id} {
+      allow read: if isMember();
+      allow create: if isCoach() && request.resource.data.coachUid == request.auth.uid
+                    && request.resource.data.status == 'live'
+                    && request.resource.data.practice is map;
+      allow update: if isCoach() && (
+          (resource.data.status == 'live'
+            && request.resource.data.coachUid == resource.data.coachUid
+            && request.resource.data.startedAt == resource.data.startedAt
+            && request.resource.data.practice == resource.data.practice)
+          || (resource.data.status != 'live'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['notes', 'attendance', 'rating'])));
+      allow delete: if isAdmin();
+    }
+
+    // Everything else is closed.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
