@@ -292,3 +292,7 @@ table.list tr.click:hover td { background: var(--panel2); }
 .idle .bigclock { font-family: var(--mono); font-size: clamp(80px, 18vw, 300px); font-weight: 900; color: #e2e8f0; margin-top: 20px; line-height: 1; }
 .live.room .lt { font-size: clamp(13px, 1.4vw, 22px); }
 .live.room .clock { font-size: clamp(16px, 2vw, 34px); color: #e2e8f0; }
+.dict-in { position: relative; }
+.dict-in textarea { padding-right: 60px; font-size: 16px; }
+.dict-in .mic { position: absolute; right: 8px; top: 8px; width: 44px; height: 44px; border-radius: 50%; font-size: 20px; }
+.dict-in .mic.rec { background: var(--red); border-color: var(--red); animation: pulse 1s infinite; }

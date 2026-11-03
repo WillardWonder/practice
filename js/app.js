@@ -7,6 +7,7 @@ import { renderLive, teardownLive, settingsModal } from './live.js';
 import { readOnlyPractice, printPractice } from './print.js';
 import { openShare } from './share.js';
 import { runChecks } from './check.js';
+import { openDictate } from './dictate.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO, OWNER_EMAIL } from './config.js';
 
 const app = $('#app');
@@ -176,7 +177,7 @@ async function viewHome() {
     ${todays.length ? `<div class="grid c2">${todays.map(p => todayCard(p)).join('')}</div>`
       : `<div class="empty">${coach ? 'No practice set for today yet. Start one below or set a date on an existing practice.' : 'No practice posted for today yet.'}</div>`}
     ${coach ? `<div class="section-title">Start a new practice</div>
-      <div class="grid c4">${TEMPLATES.map(tp => `<a class="tpl" href="#/new/${tp.key}" style="border-color:${tp.accent}33;text-decoration:none;color:inherit"><div class="n" style="color:${tp.accent}">${esc(tp.name)}</div><div class="b">${esc(tp.blurb)}</div></a>`).join('')}</div>` : ''}
+      <div class="grid c4"><button class="tpl" data-dictate style="border-color:#a855f755"><div class="n" style="color:#c084fc">🎤 Dictate it</div><div class="b">Say it, AI builds it</div></button>${TEMPLATES.map(tp => `<a class="tpl" href="#/new/${tp.key}" style="border-color:${tp.accent}33;text-decoration:none;color:inherit"><div class="n" style="color:${tp.accent}">${esc(tp.name)}</div><div class="b">${esc(tp.blurb)}</div></a>`).join('')}</div>` : ''}
     ${upcoming.length ? `<div class="section-title">Coming up</div><div class="grid c2">${upcoming.map(practiceCard).join('')}</div>` : ''}
     <div class="section-title">Recently edited</div>
     ${recent.length ? `<div class="grid c2">${recent.map(practiceCard).join('')}</div>` : `<div class="empty">No practices yet.</div>`}
@@ -222,7 +223,11 @@ function practiceCard(p) {
       ${can(user, 'edit') ? `<button class="btn sm" data-dup="${p.id}">Duplicate</button>` : ''}
       <span class="grow"></span><span class="small muted">${timeAgo(p.updatedAt)}</span></div></div>`;
 }
+function bindDictate() {
+  $$('[data-dictate]').forEach(b => b.onclick = () => openDictate(user, (p, run) => { location.hash = run ? `#/run/${p.id}` : `#/edit/${p.id}`; }));
+}
 function bindCards() {
+  bindDictate();
   $$('[data-open]').forEach(c => c.addEventListener('click', (e) => {
     if (e.target.closest('[data-stop],[data-dup],a,button')) return;
     const id = c.dataset.open; location.hash = canEditPractice(user, { id, ...(cache[id] || {}) }) ? `#/edit/${id}` : `#/p/${id}`;
@@ -253,7 +258,7 @@ async function viewPractices() {
     bindCards();
   };
   $('main').innerHTML = `<div class="page-head"><h1>Practices</h1>
-      <div class="row wrap">${can(user, 'edit') ? `<label class="btn">Import file<input type="file" id="imp" accept=".json" hidden></label><a class="btn primary" href="#/new/blank">＋ New practice</a>` : ''}</div></div>
+      <div class="row wrap">${can(user, 'edit') ? `<label class="btn">Import file<input type="file" id="imp" accept=".json" hidden></label><button class="btn" data-dictate>🎤 Dictate</button><a class="btn primary" href="#/new/blank">＋ New practice</a>` : ''}</div></div>
     <div class="row wrap" style="gap:10px;margin-bottom:14px">
       <input class="input" id="q" placeholder="Search practices or drills…" value="${esc(pFilter.q)}" style="max-width:340px">
       <div class="seg">${[['all', 'All'], ['scheduled', 'Scheduled'], ['drafts', 'Drafts'], ['mine', 'Mine'], ['canceled', 'Canceled']].map(([k, l]) => `<button data-tab="${k}" class="${pFilter.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>

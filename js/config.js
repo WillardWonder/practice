@@ -42,4 +42,8 @@ export const TEST_ACCOUNTS = [
   { email: 'student@test.com', password: 'studentpassword', role: 'athlete', name: 'Test Student' },
 ];
 
+// Quick Dictate uses Gemini through Firebase AI Logic (no API key in the page).
+// Tried in order; the first name the project supports is used.
+export const AI_MODELS = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
+
 export const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/12.19.0';
