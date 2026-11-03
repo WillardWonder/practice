@@ -6,7 +6,7 @@ import { makeRotation, makeGoes, PRESET_DRILLS, TEMPLATES } from '../js/seed.js'
 const drill = (t, sec, extra = {}) => ({ id: t, type: 'drill', title: t, category: 'Neutral', durationSec: sec, ...extra });
 
 test('all prototype presets carried over', () => {
-  assert.equal(PRESET_DRILLS.filter(d => !['w1','w2','w3','w4','s4','cd6','cd7'].includes(d.id)).length, 41);
+  assert.equal(PRESET_DRILLS.filter(d => !d.added && !['w1','w2','w3','w4','s4','cd6','cd7'].includes(d.id)).length, 41);
   assert.ok(PRESET_DRILLS.find(d => d.title === 'IRONMAN' && d.description === 'Neutral intensity' && d.durationSec === 480));
   const cw = TEMPLATES.find(t => t.key === 'comp-warmup').build();
   assert.deepEqual(cw.blocks.map(b => [b.title, b.durationSec / 60]), [['Dynamic Warm-up', 10], ['Stance & Motion', 5], ['Hard Speed Shots', 5], ['Clearance Drills', 5], ['Mental Prep / Chalk Talk', 5]]);
@@ -82,4 +82,23 @@ test('duration parsing and formatting', () => {
   assert.equal(parseDur('5', 0), 300); assert.equal(parseDur('1:30', 0), 90); assert.equal(parseDur('45s', 0), 45); assert.equal(parseDur('x', 7), 7);
   assert.equal(fmt(65), '1:05'); assert.equal(fmt(3725), '1:02:05');
   assert.equal(practiceDuration({ blocks: [drill('a', 60), drill('b', 90)] }), 150);
+});
+
+test('routine: one block, each motion its own timed segment', async () => {
+  const { PRESET_DRILLS, drillToBlock } = await import('../js/seed.js');
+  const r = PRESET_DRILLS.find(d => d.type === 'series');
+  const b = drillToBlock(r);
+  const segs = compile({ blocks: [b, drill('next', 60)] });
+  assert.equal(segs.length, r.moves.length + 1);
+  assert.equal(segs[0].title, 'Jog'); assert.equal(segs[0].say, 'Team Warm-up. Jog');
+  assert.equal(segs[1].sub, `Team Warm-up · 2 of ${r.moves.length}`);
+  assert.ok(segs[0].seriesStep); assert.ok(!segs[r.moves.length - 1].seriesStep);
+  assert.equal(blockDuration(b), r.moves.reduce((s, m) => s + m.sec, 0));
+});
+
+test('games category present with requested games', async () => {
+  const { PRESET_DRILLS } = await import('../js/seed.js');
+  const g = PRESET_DRILLS.filter(d => d.category === 'Games').map(d => d.title);
+  ['Wall Sit: Last One Standing', 'Sharks & Minnows', 'Dodgeball', 'Queen of the Mat', 'Flag Wrestling', 'Shoe Wrestling', 'Line Drag', 'Sumo Wrestling', 'Knee Wrestling Royal Rumble'].forEach(t => assert.ok(g.includes(t), t));
+  assert.equal(new Set(PRESET_DRILLS.map(d => d.id)).size, PRESET_DRILLS.length, 'unique ids');
 });

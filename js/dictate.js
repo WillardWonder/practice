@@ -4,7 +4,7 @@
 // keyword builder that matches drills from the library.
 import { esc, modal, toast } from './ui.js';
 import { store, isFirebase } from './store.js';
-import { CATEGORIES, makeRest, newId } from './seed.js';
+import { CATEGORIES, makeRest, newId, drillToBlock } from './seed.js';
 import { practiceDuration, fmtDur, minutesBetween } from './engine.js';
 import { readOnlyPractice } from './print.js';
 import { FIREBASE_SDK, AI_MODELS } from './config.js';
@@ -39,7 +39,7 @@ async function generate(prompt) {
 }
 
 function buildPrompt(drills, transcript, history, defaults) {
-  const lib = drills.map(d => `${d.id} | ${d.title} | ${d.category} | ${Math.round(d.durationSec / 60)}m${d.description ? ' | ' + d.description : ''}`).join('\n');
+  const lib = drills.map(d => `${d.id} | ${d.title} | ${d.category} | ${Math.round(d.durationSec / 60)}m${d.type === 'series' ? ' | ROUTINE (fixed length; add as a drill block with this drillId)' : d.description ? ' | ' + d.description : ''}`).join('\n');
   return `You are the practice planner for Bluejays Girls Wrestling ("Champion Making Process").
 Turn the coach's spoken request into a practice plan using ONLY these building blocks.
 
@@ -90,6 +90,7 @@ function toBlocks(plan, drills) {
         stationSec: sec(b.stationMinutes, 5), transitionSec: Math.max(0, num(b.transitionSec, 30)), stations: st };
     }
     const d = find(b);
+    if (d?.type === 'series') return drillToBlock(d);
     return { id: newId(), type: 'drill', title: d?.title || b.title || 'Drill', category: d?.category || cat(b.category), description: b.description || d?.description || '',
       cues: b.cues?.length ? b.cues : (d?.cues || []), durationSec: sec(b.minutes, (d?.durationSec || 300) / 60), switchAtHalf: !!b.switchAtHalf, holdAtEnd: !!b.holdAtEnd, drillId: d?.id || null, videoUrl: d?.videoUrl || '' };
   });
@@ -102,8 +103,8 @@ function localPlan(text, drills) {
   const words = (s) => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 3);
   const mentioned = drills.filter(d => { const w = words(d.title); return w.length && w.every(x => t.includes(x)); });
   const blocks = [];
-  const add = (d, min) => blocks.push({ type: 'drill', drillId: d.id, title: d.title, minutes: min ?? d.durationSec / 60 });
-  const warm = drills.find(d => d.id === 'w1'); if (warm && !mentioned.includes(warm)) add(warm, 10);
+  const add = (d, min) => blocks.push({ type: 'drill', drillId: d.id, title: d.title, minutes: d.type === 'series' ? d.durationSec / 60 : (min ?? d.durationSec / 60) });
+  const warm = drills.find(d => d.id === 'r001') || drills.find(d => d.id === 'w1'); if (warm && !mentioned.includes(warm)) add(warm, 10);
   mentioned.forEach(d => add(d));
   const nLive = (t.match(/(\d+)\s*(live|goes|situation)/) || [])[1];
   if (/live|goes|wrestl/.test(t)) blocks.push({ type: 'goes', title: 'Live Goes', rounds: nLive ? Math.min(+nLive, 15) : 4, workSec: 120, restSec: 60 });
@@ -123,7 +124,7 @@ function localPlan(text, drills) {
   let over = blocks.reduce((s, b) => s + len(b), 0) - total;
   for (const b of blocks.slice().sort((a, b) => phase(b) - phase(a))) {
     if (over <= 1) break;
-    if (b.type === 'drill' && phase(b) !== 0 && phase(b) !== 6) { const cut = Math.min(over, b.minutes - 3); if (cut > 0) { b.minutes -= cut; over -= cut; } }
+    if (b.type === 'drill' && !drills.find(x => x.id === b.drillId && x.type === 'series') && phase(b) !== 0 && phase(b) !== 6) { const cut = Math.min(over, b.minutes - 3); if (cut > 0) { b.minutes -= cut; over -= cut; } }
     else if (b.type === 'goes') { while (over > 1 && b.rounds > 3) { b.rounds--; over -= (b.workSec + b.restSec) / 60; } }
   }
   return { status: 'plan', title: 'Dictated practice', focus: text.slice(0, 120), blocks };

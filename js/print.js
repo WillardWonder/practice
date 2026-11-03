@@ -12,6 +12,7 @@ function rotationTable(b) {
 }
 
 export function blockDetail(b) {
+  if (b.type === 'series') return `${(b.moves || []).length} motions: ${(b.moves || []).map(m => m.title).join(', ')}`;
   if (b.type === 'goes') return `${b.rounds} × ${fmtDur(b.workSec)} goes, ${fmtDur(b.restSec)} rest${b.switchAtHalf ? ' · switch at half' : ''}`;
   if (b.type === 'rotation') return `${b.stations.length} groups · ${fmtDur(b.stationSec)} per station${b.mode === 'split' ? ' · groups stay put' : ` · ${fmtDur(b.transitionSec || 0)} to rotate`}`;
   if (b.type === 'rest') return 'Water / recover';

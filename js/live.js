@@ -15,6 +15,7 @@ let S = null;
 export function teardownLive() {
   if (!S) return;
   clearInterval(S.tick); clearInterval(S.beat); clearTimeout(S.idleTimer);
+  if (S.el) S.el.onclick = null; // the app container is reused by other pages
   document.removeEventListener('keydown', S.onKey);
   document.removeEventListener('visibilitychange', S.onVis);
   S.unwatch && S.unwatch(); S.unwatchLive && S.unwatchLive();
@@ -266,7 +267,7 @@ function cues() {
   const f = (S.fired[`${S.run.id}:${i}:${S.clock.anchor}`] ||= {});
   if (seg.switchAtHalf && !f.sw && el >= dur / 2 && rem > 2) { f.sw = true; audio.speak('Switch!'); }
   if (st.warn30 && dur >= 90 && !f.w30 && rem <= 30 && rem > 27) { f.w30 = true; audio.speak('30 seconds'); }
-  if (st.previewNext && dur >= 40 && !f.nx && rem <= 15 && rem > 11 && seg.kind !== 'leadin') {
+  if (st.previewNext && dur >= 40 && !f.nx && rem <= 15 && rem > 11 && seg.kind !== 'leadin' && !seg.seriesStep) {
     f.nx = true; const nx = S.segs[i + 1];
     if (nx && nx.kind === 'work' && !(nx.assignments && nx.blockIndex === seg.blockIndex)) audio.speak(nx.assignments ? PHRASES.nextRotation : PHRASES.next(nx.title));
   }
@@ -285,8 +286,11 @@ function reschedule() {
     const d = segDur(S.segs, S.clock, i) * 1000;
     const startIn = endIn - d;
     if (S.segs[i].switchAtHalf) ev.push({ inMs: startIn + d / 2, kind: 'switch' });
-    if (st.countdown && d >= 10000) [3, 2, 1].forEach(n => ev.push({ inMs: endIn - n * 1000, kind: n === 1 ? 'beepHigh' : 'beep' }));
-    ev.push({ inMs: endIn, kind: 'horn' });
+    if (S.segs[i].seriesStep) ev.push({ inMs: endIn, kind: 'beepHigh' }); // routine: quick beep between motions, voice calls the next one
+    else {
+      if (st.countdown && d >= 10000) [3, 2, 1].forEach(n => ev.push({ inMs: endIn - n * 1000, kind: n === 1 ? 'beepHigh' : 'beep' }));
+      ev.push({ inMs: endIn, kind: 'horn' });
+    }
     if (S.segs[i].holdAtEnd) break; // waits for coach; nothing after is predictable
     endIn += segDur(S.segs, S.clock, i + 1) * 1000;
   }
@@ -418,6 +422,7 @@ function blocksMenu() {
 
 function bindControls() {
   S.el.onclick = (e) => {
+    if (!S) return;
     const b = e.target.closest('[data-act]');
     if (b) return act(b.dataset.act, b);
     if (e.target.closest('#l-timer') && S.mode !== 'room') act('toggle');

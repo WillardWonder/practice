@@ -10,6 +10,7 @@ import { runChecks } from './check.js';
 import { openDictate } from './dictate.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO, OWNER_EMAIL } from './config.js';
 
+const PRESET_VERSION = '2';
 const app = $('#app');
 let user = null, liveRuns = [], unLive = null, booted = false;
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -23,6 +24,10 @@ store.init(async (u) => {
   }
   unLive && unLive(); unLive = null;
   if (u && can(u, 'member')) unLive = store.watchLiveRuns((runs) => { liveRuns = runs; const b = $('#livebar'); if (b) b.innerHTML = liveBar(); });
+  // Keep the shared library up to date with new built-in drills (once per version, per device).
+  if (u && isFirebase && can(u, 'library') && localStorage.getItem('practice-presets') !== PRESET_VERSION) {
+    store.seedDrills().then(() => localStorage.setItem('practice-presets', PRESET_VERSION)).catch(() => {});
+  }
   booted = true; route();
 }).catch(e => { app.innerHTML = `<div class="login"><div class="card"><h2>Couldn't load</h2><p class="muted">${esc(e.message)}</p><p class="small muted">Check your internet connection and reload.</p></div></div>`; });
 
@@ -164,10 +169,11 @@ function viewPending() {
 async function viewHome() {
   shell('', `<div class="muted">Loading…</div>`);
   const ps = await store.listPractices().catch(e => { toast(e.message, 'error'); return []; });
+  ps.forEach(p => { cache[p.id] = p; });
   const t = today();
-  const todays = ps.filter(p => p.date === t && !p.canceled);
-  const upcoming = ps.filter(p => p.date > t && !p.canceled).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 4);
-  const recent = ps.slice(0, 6);
+  const active = ps.filter(p => !p.canceled);
+  const todays = active.filter(p => p.date === t);
+  const saved = active.filter(p => p.date !== t).slice(0, 8);
   const coach = can(user, 'edit');
   $('main').innerHTML = `
     <div class="hero">
@@ -175,73 +181,86 @@ async function viewHome() {
       <div class="motto" style="justify-content:flex-start">${MOTTO.map(esc).join('<span>•</span>')}</div></div>
       <div class="muted">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
     </div>
-    <div class="section-title">Today</div>
-    ${todays.length ? `<div class="grid c2">${todays.map(p => todayCard(p)).join('')}</div>`
-      : `<div class="empty">${coach ? 'No practice set for today yet. Start one below or set a date on an existing practice.' : 'No practice posted for today yet.'}</div>`}
-    ${coach ? `<div class="section-title">Start a new practice</div>
-      <div class="grid c4"><button class="tpl" data-dictate style="border-color:#a855f755"><div class="n" style="color:#c084fc">🎤 Dictate it</div><div class="b">Say it, AI builds it</div></button>${TEMPLATES.map(tp => `<a class="tpl" href="#/new/${tp.key}" style="border-color:${tp.accent}33;text-decoration:none;color:inherit"><div class="n" style="color:${tp.accent}">${esc(tp.name)}</div><div class="b">${esc(tp.blurb)}</div></a>`).join('')}</div>` : ''}
-    ${upcoming.length ? `<div class="section-title">Coming up</div><div class="grid c2">${upcoming.map(practiceCard).join('')}</div>` : ''}
-    <div class="section-title">Recently edited</div>
-    ${recent.length ? `<div class="grid c2">${recent.map(practiceCard).join('')}</div>` : `<div class="empty">No practices yet.</div>`}
-    <div class="section-title">Room display</div>
-    <div class="card row wrap between"><div><b>Put the room TV on ${esc(location.host || 'this site')}/#/room</b><div class="small muted">Sign in once on the TV's browser with a view-only account. It shows the motto and clock, then switches on its own when a coach starts practice.</div></div><a class="btn" href="#/room">📺 Open room display</a></div>`;
-  bindCards();
+    ${coach ? `<div class="big3">
+      <button class="b3 run" data-act="pickrun"><b>▶</b>Run a saved practice</button>
+      <a class="b3 new" href="#/new/blank"><b>＋</b>Build a new one</a>
+      <button class="b3 dict" data-dictate><b>🎤</b>Say it, AI builds it</button>
+    </div>` : ''}
+    ${todays.length ? `<div class="section-title">Today</div><div class="plist">${todays.map(prow).join('')}</div>` : ''}
+    <div class="section-title">${coach ? 'Saved practices' : 'Practices'}</div>
+    ${saved.length ? `<div class="plist">${saved.map(prow).join('')}</div>${active.length > saved.length + todays.length ? '<a class="btn" href="#/practices" style="margin-top:10px">See all practices →</a>' : ''}`
+      : `<div class="empty">${coach ? 'No saved practices yet. Build one or start from a template below.' : 'Nothing posted yet.'}</div>`}
+    ${coach ? `<div class="section-title">Start from a template</div>
+      <div class="grid c4">${TEMPLATES.map(tp => `<a class="tpl" href="#/new/${tp.key}" style="border-color:${tp.accent}33;text-decoration:none;color:inherit"><div class="n" style="color:${tp.accent}">${esc(tp.name)}</div><div class="b">${esc(tp.blurb)}</div></a>`).join('')}</div>` : ''}
+    <div class="section-title">Room TV</div>
+    <div class="card row wrap between"><div><b>Open the room display on the TV</b><div class="small muted">Sign in once on the TV with a view-only account. It shows the motto and clock, then switches on by itself when practice starts.</div></div><a class="btn" href="#/room">📺 Room display</a></div>`;
+  bindRows();
+  const pr = $('[data-act=pickrun]'); if (pr) pr.onclick = () => pickToRun(active);
 }
 
-function todayCard(p) {
+const pDate = (p) => p.date ? new Date(p.date + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+function prow(p) {
   const total = practiceDuration(p);
   const live = liveRuns.find(r => r.practiceId === p.id);
-  return `<div class="card pcard" data-open="${p.id}" style="border-color:rgba(34,197,94,.4)">
-    <div class="row between"><span class="tiny">${p.startTime ? clockTimeLabel(p.startTime, 0) + ' – ' + clockTimeLabel(p.startTime, total) : 'Today'}</span>${live ? '<span class="live-pill" style="color:#f87171;font-size:12px;font-weight:800">LIVE</span>' : ''}</div>
-    <h3 style="font-size:24px">${esc(p.title)}</h3>
-    <div class="catbar">${catbar(p)}</div>
-    <div class="row wrap"><span class="muted small">${Math.round(total / 60)} min · ${p.blocks.length} blocks</span><span class="grow"></span>
-      ${live ? `<a class="btn gold lg" href="#/live/${live.id}" data-stop>Open live</a>` : can(user, 'run') ? `<a class="btn go lg" href="#/run/${p.id}" data-stop>▶ Run</a>` : ''}</div></div>`;
+  const meta = [`${Math.round(total / 60)} min`, `${(p.blocks || []).length} blocks`, pDate(p), p.canceled ? 'canceled' : '', (p.levels || []).join(', ')].filter(Boolean).join(' · ');
+  return `<div class="prow" data-open="${p.id}">
+    <div class="grow" style="min-width:0">
+      <div class="pr-t">${esc(p.title)}${live ? ' <span class="badge red">LIVE</span>' : ''}</div>
+      <div class="catbar" style="margin:6px 0">${catbar(p)}</div>
+      <div class="pr-s">${esc(meta)}</div>
+    </div>
+    ${live ? `<a class="btn gold lg" href="#/live/${live.id}" data-stop>Open</a>` : can(user, 'run') && (p.blocks || []).length ? `<a class="btn go lg pr-run" href="#/run/${p.id}" data-stop aria-label="Run ${esc(p.title)}">▶</a>` : ''}
+  </div>`;
 }
-
 function catbar(p) {
   const total = practiceDuration(p) || 1;
   return (p.blocks || []).map(b => `<i style="width:${(blockDuration(b) / total * 100).toFixed(2)}%;background:${catColor(b.category)}"></i>`).join('');
 }
-function statusOf(p) {
-  if (p.canceled) return ['Canceled', 'red'];
-  if (liveRuns.some(r => r.practiceId === p.id)) return ['Live', 'red'];
-  if (p.lastRunStatus === 'completed' && p.date && p.date <= today()) return ['Completed', 'green'];
-  if (p.date) return p.date >= today() ? ['Scheduled', 'blue'] : ['Past', ''];
-  return ['Draft', ''];
-}
-function practiceCard(p) {
-  const total = practiceDuration(p);
-  const [st, sc] = statusOf(p);
-  return `<div class="card pcard" data-open="${p.id}">
-    <div class="row between"><span class="tiny">${p.date ? new Date(p.date + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : 'No date'}</span><span class="badge ${sc}">${st}</span></div>
-    <h3>${esc(p.title)}</h3>
-    <div class="catbar">${catbar(p)}</div>
-    <div class="row wrap" style="gap:6px"><span class="muted small">${Math.round(total / 60)} min · ${(p.blocks || []).length} blocks${p.ownerName ? ' · ' + esc(p.ownerName) : ''}</span>
-      ${(p.levels || []).map(l => `<span class="badge">${esc(l)}</span>`).join('')}${p.visibility === 'public' ? '<span class="badge gold">Public</span>' : p.visibility === 'athletes' ? '<span class="badge blue">Athletes</span>' : ''}</div>
-    <div class="row wrap" style="gap:6px">
-      ${can(user, 'run') && (p.blocks || []).length ? `<a class="btn sm go" href="#/run/${p.id}" data-stop>▶ Run</a>` : ''}
-      ${canEditPractice(user, p) ? `<a class="btn sm" href="#/edit/${p.id}" data-stop>✎ Edit</a>` : `<a class="btn sm" href="#/p/${p.id}" data-stop>View</a>`}
-      ${can(user, 'edit') ? `<button class="btn sm" data-dup="${p.id}">Duplicate</button>` : ''}
-      <span class="grow"></span><span class="small muted">${timeAgo(p.updatedAt)}</span></div></div>`;
+function bindRows() {
+  bindDictate();
+  $$('[data-open]').forEach(c => c.addEventListener('click', (e) => { if (e.target.closest('[data-stop]')) return; practiceMenu(cache[c.dataset.open]); }));
 }
 function bindDictate() {
   $$('[data-dictate]').forEach(b => b.onclick = () => openDictate(user, (p, run) => { location.hash = run ? `#/run/${p.id}` : `#/edit/${p.id}`; }));
 }
-function bindCards() {
-  bindDictate();
-  $$('[data-open]').forEach(c => c.addEventListener('click', (e) => {
-    if (e.target.closest('[data-stop],[data-dup],a,button')) return;
-    const id = c.dataset.open; location.hash = canEditPractice(user, { id, ...(cache[id] || {}) }) ? `#/edit/${id}` : `#/p/${id}`;
-  }));
-  $$('[data-dup]').forEach(b => b.addEventListener('click', async (e) => { e.stopPropagation(); await duplicate(b.dataset.dup); }));
+
+// One simple menu for every practice
+function practiceMenu(p) {
+  if (!p) return;
+  const edit = canEditPractice(user, p);
+  const total = practiceDuration(p);
+  modal({ title: p.title, body: `<div class="muted small" style="margin-bottom:12px">${Math.round(total / 60)} min · ${(p.blocks || []).length} blocks${p.ownerName ? ' · by ' + esc(p.ownerName) : ''}${p.date ? ' · ' + pDate(p) : ''}</div>
+    <div class="stack">
+      ${can(user, 'run') && (p.blocks || []).length ? '<button class="btn go xl" style="width:100%" data-act="run">▶ Run it now</button>' : ''}
+      ${can(user, 'edit') ? '<button class="btn lg" style="width:100%" data-act="again">⧉ Use again: make a copy for today</button>' : ''}
+      ${edit ? '<button class="btn lg" style="width:100%" data-act="edit">✎ Edit</button>' : '<button class="btn lg" style="width:100%" data-act="view">👁 View</button>'}
+      <button class="btn lg" style="width:100%" data-act="print">🖨 Print</button>
+    </div>`,
+    onAction: async (a, el, w, close) => {
+      close();
+      if (a === 'run') location.hash = `#/run/${p.id}`;
+      if (a === 'again') duplicate(p.id, { title: p.title, date: today() });
+      if (a === 'edit') location.hash = `#/edit/${p.id}`;
+      if (a === 'view') location.hash = `#/p/${p.id}`;
+      if (a === 'print') printPractice(p);
+    } });
 }
+
+function pickToRun(list) {
+  let q = '';
+  const rows = () => list.filter(p => (p.blocks || []).length && (!q || (p.title + ' ' + (p.blocks || []).map(b => b.title).join(' ')).toLowerCase().includes(q.toLowerCase())))
+    .map(p => `<button class="dr" data-act="go" data-id="${p.id}"><span class="grow"><span class="dr-t">${esc(p.title)}</span><span class="dr-s">${Math.round(practiceDuration(p) / 60)} min · ${(p.blocks || []).length} blocks${p.date ? ' · last set ' + pDate(p) : ''}</span></span><span class="dr-plus" style="background:var(--green);color:#052e12">▶</span></button>`).join('') || '<div class="empty">No saved practices yet.</div>';
+  const m = modal({ title: 'Run a saved practice', wide: true, body: `<input class="input" id="rq" placeholder="🔍 Search…"><div class="drs" id="rl">${rows()}</div>`,
+    onAction: (a, el, w, close) => { if (a === 'go') { close(); location.hash = `#/run/${el.dataset.id}`; } } });
+  m.el.querySelector('#rq').oninput = (e) => { q = e.target.value; m.el.querySelector('#rl').innerHTML = rows(); };
+}
+
 const cache = {};
 async function duplicate(id, overrides = {}) {
   const p = await store.getPractice(id);
-  const c = JSON.parse(JSON.stringify(p)); delete c.id; delete c.createdAt; delete c.lastRunStatus; delete c.canceled;
+  const c = JSON.parse(JSON.stringify(p)); delete c.id; delete c.createdAt; delete c.canceled;
   Object.assign(c, { title: p.title + ' (copy)', ownerUid: null, ownerName: null, date: '', visibility: 'team', coEdit: false }, overrides);
-  await store.savePractice(c); toast('Duplicated. Set the date and go.', 'success'); location.hash = `#/edit/${c.id}`;
+  await store.savePractice(c); toast(overrides.date ? 'Copied for today' : 'Duplicated', 'success'); location.hash = `#/edit/${c.id}`;
 }
 
 // ---- Practices -------------------------------------------------------
@@ -254,19 +273,19 @@ async function viewPractices() {
     const f = pFilter, q = f.q.toLowerCase(), t = today();
     const list = ps.filter(p => (!q || (p.title + ' ' + (p.notes || '') + ' ' + (p.blocks || []).map(b => b.title).join(' ')).toLowerCase().includes(q))
       && (!f.level || (p.levels || []).includes(f.level))
-      && (f.tab === 'all' ? !p.canceled : f.tab === 'mine' ? p.ownerUid === user.uid : f.tab === 'scheduled' ? p.date >= t && !p.canceled : f.tab === 'drafts' ? !p.date && !p.canceled : f.tab === 'canceled' ? p.canceled : true))
-      .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.updatedAt || 0) - (a.updatedAt || 0));
-    $('#plist').innerHTML = list.length ? list.map(practiceCard).join('') : `<div class="empty" style="grid-column:1/-1">No practices match.</div>`;
-    bindCards();
+      && (f.tab === 'all' ? !p.canceled : f.tab === 'mine' ? p.ownerUid === user.uid : f.tab === 'upcoming' ? p.date >= t && !p.canceled : f.tab === 'canceled' ? p.canceled : true));
+    $('#plist').innerHTML = list.length ? list.map(prow).join('') : `<div class="empty">No practices match.</div>`;
+    bindRows();
   };
   $('main').innerHTML = `<div class="page-head"><h1>Practices</h1>
-      <div class="row wrap">${can(user, 'edit') ? `<label class="btn">Import file<input type="file" id="imp" accept=".json" hidden></label><button class="btn" data-dictate>🎤 Dictate</button><a class="btn primary" href="#/new/blank">＋ New practice</a>` : ''}</div></div>
-    <div class="row wrap" style="gap:10px;margin-bottom:14px">
-      <input class="input" id="q" placeholder="Search practices or drills…" value="${esc(pFilter.q)}" style="max-width:340px">
-      <div class="seg">${[['all', 'All'], ['scheduled', 'Scheduled'], ['drafts', 'Drafts'], ['mine', 'Mine'], ['canceled', 'Canceled']].map(([k, l]) => `<button data-tab="${k}" class="${pFilter.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="row wrap">${can(user, 'edit') ? `<button class="btn" data-dictate>🎤 Dictate</button><a class="btn primary" href="#/new/blank">＋ New</a>` : ''}</div></div>
+    <input class="input" id="q" placeholder="🔍 Search practices or drills…" value="${esc(pFilter.q)}" style="margin-bottom:10px">
+    <div class="row wrap" style="gap:8px;margin-bottom:14px">
+      <div class="seg">${[['all', 'All'], ['upcoming', 'Upcoming'], ['mine', 'Mine'], ['canceled', 'Canceled']].map(([k, l]) => `<button data-tab="${k}" class="${pFilter.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <select class="input" id="lv" style="width:auto"><option value="">All levels</option>${LEVELS.map(l => `<option ${pFilter.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      ${can(user, 'edit') ? '<label class="btn sm ghost">Import file<input type="file" id="imp" accept=".json" hidden></label>' : ''}
     </div>
-    <div class="grid c2" id="plist"></div>`;
+    <div class="plist" id="plist"></div>`;
   $('#q').oninput = (e) => { pFilter.q = e.target.value; draw(); };
   $('#lv').onchange = (e) => { pFilter.level = e.target.value; draw(); };
   $$('[data-tab]').forEach(b => b.onclick = () => { pFilter.tab = b.dataset.tab; $$('[data-tab]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
@@ -349,13 +368,20 @@ async function viewLibrary() {
     const list = drills.filter(d => (!libCat || d.category === libCat) && (!q || (d.title + ' ' + (d.description || '') + ' ' + (d.cues || []).join(' ')).toLowerCase().includes(q)));
     $('#dl').innerHTML = CATEGORIES.map(c => { const items = list.filter(d => d.category === c.id).sort((a, b) => a.title.localeCompare(b.title)); return items.length ? `
       <div class="section-title" style="border-color:${c.color};color:${c.color}">${c.id} Drills · ${items.length}</div>
-      <div class="grid c3">${items.map(d => `<button class="drill" data-d="${d.id}"><span class="cat" style="background:${c.color}"></span><span class="t" style="padding-right:16px">${esc(d.title)}</span>
-        <span class="d muted">${fmtDur(d.durationSec)} · ${esc(d.description || c.id)}</span>
+      <div class="grid c3">${items.map(d => `<button class="drill" data-d="${d.id}"><span class="cat" style="background:${c.color}"></span><span class="t" style="padding-right:16px">${d.type === 'series' ? '⟳ ' : ''}${esc(d.title)}</span>
+        <span class="d muted">${fmtDur(d.durationSec)} · ${d.type === 'series' ? d.moves.length + ' motions, each called out' : esc(d.description || c.id)}</span>
         ${(d.cues || []).length ? `<span class="d" style="color:#93c5fd">${d.cues.map(esc).join(' · ')}</span>` : ''}
         ${(d.levels || []).length ? `<span class="d muted">${d.levels.map(esc).join(', ')}</span>` : ''}</button>`).join('')}</div>` : ''; }).join('') || '<div class="empty">No drills match.</div>';
     $$('[data-d]').forEach(b => b.onclick = () => openDrill(drills.find(d => d.id === b.dataset.d)));
   };
   const openDrill = (d) => {
+    if (d?.type === 'series') {
+      return modal({ title: d.title, body: `<div class="stack"><div class="small muted">Routine · ${d.moves.length} motions · ${fmtDur(d.durationSec)} total. Each motion is called and timed on its own.</div>
+        ${d.moves.map((mv, i) => `<div class="row between" style="border-bottom:1px solid var(--line);padding:8px 0"><span><b>${i + 1}.</b> ${esc(mv.title)}</span><span class="muted">${fmtDur(mv.sec)}</span></div>`).join('')}
+        <div class="small muted">To change it: add it to a practice, tap it, edit the motions, then tap "Save this routine to the library".</div></div>`,
+        footer: canEditDrill(d) ? '<button class="btn danger" data-act="del">Delete</button>' : '',
+        onAction: async (a, el, w, close) => { if (a === 'del' && await confirmBox('Delete routine?', `Remove "${d.title}" from the library?`, 'Delete')) { await store.deleteDrill(d.id); drills = drills.filter(x => x.id !== d.id); close(); draw(); } } });
+    }
     const editable = d ? canEditDrill(d) : can(user, 'library');
     modal({ title: d ? (editable ? 'Edit move' : d.title) : 'New move', body: editable ? drillForm(d || {}) : `<div class="stack"><div class="badge">${esc(d.category)}</div><p>${esc(d.description || '')}</p>${(d.cues || []).map(c => `<span class="badge blue">${esc(c)}</span>`).join(' ')}${d.videoUrl ? `<p><a href="${esc(d.videoUrl)}" target="_blank" rel="noopener">▶ Technique video</a></p>` : ''}<p class="small muted">Default ${fmtDur(d.durationSec)}</p></div>`,
       footer: editable ? `${d ? '<button class="btn danger" data-act="del">Delete</button>' : ''}<span class="grow"></span><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save">Save</button>` : '',
