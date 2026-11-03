@@ -26,8 +26,8 @@ export function compile(practice) {
     } else if (b.type === 'series') {
       const n = (b.moves || []).length;
       b.moves.forEach((m, k) => segs.push({ ...base, kind: 'work', title: m.title, description: m.description || '', cues: [],
-        sub: `${b.title} · ${k + 1} of ${n}`, durationSec: m.sec, seriesStep: k < n - 1,
-        say: k === 0 ? `${b.title}. ${m.title}` : m.title }));
+        sub: `${m.section || b.title} · ${k + 1} of ${n}`, durationSec: m.sec, seriesStep: k < n - 1,
+        say: k === 0 ? `${b.title}. ${m.section ? m.section + '. ' : ''}${m.title}` : (m.section && m.section !== b.moves[k - 1].section ? `${m.section}. ${m.title}` : m.title) }));
     } else if (b.type === 'rest') {
       segs.push({ ...base, kind: 'rest', title: b.title && b.title !== 'Rest' ? b.title : 'Rest', durationSec: b.durationSec, say: 'Rest' });
     } else if (b.type === 'goes') {

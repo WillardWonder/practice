@@ -27,7 +27,7 @@ const PRINCIPLES = `
 PRACTICE DESIGN RULES (follow unless the coach says otherwise):
 - Phase order: (optional short Team Talk) → Warm-up → Stance/motion & hand fighting → Technique (teach → drill, neutral first, then top/bottom) → Situational → Live → Conditioning / Games → Cool Down → (optional closing huddle).
 - Default time split for a 90-minute practice: warm-up 10-15, stance/hand fighting 5, technique 30-40, situational 8-12, live 15-20, conditioning or games 8-10, cool down 5. Scale proportionally for other lengths.
-- Warm-up: if the library has a ROUTINE in Warm-up (e.g. "Team Warm-up"), use it as the warm-up instead of building one from single drills.
+- Warm-up: if the library has a ROUTINE in Warm-up (e.g. "Warm Up for Success"), use it as the warm-up instead of building one from single drills.
 - Technique drill blocks are usually 4-10 minutes. Don't make one technique 20+ minutes unless asked. Group related techniques (all neutral attacks together, then top, then bottom).
 - Progress within a position: basic → finish → chain/counter → situational. Situations should use the positions taught that day.
 - Hard live wrestling comes before conditioning, never after a long conditioning block. Conditioning never comes before technique.

@@ -33,7 +33,7 @@ export const STAFF_EMAILS = [
 // Team identity. It's shown on the room display and in the header.
 export const TEAM_NAME = 'Bluejays Girls Wrestling';
 export const PROGRAM_NAME = 'Champion Making Process';
-export const MOTTO = ['CONSISTENT', 'PERSISTENT', 'RESILIENT', 'RELENTLESS'];
+export const MOTTO = ['CONSISTENT', 'PERSISTENT', 'RESILIENT', 'RELENTLESS', 'RESPECTFUL'];
 
 // Test accounts set up from Admin → "Create test accounts"
 export const TEST_ACCOUNTS = [

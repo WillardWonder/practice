@@ -233,18 +233,42 @@ EXTRA.forEach(([category, title, min, description], i) => PRESET_DRILLS.push({
 }));
 
 // Routines: one item in a practice, but each motion is timed and called by itself.
-// This is a standard starting point. Edit it to match the team's warm-up and
-// save it back to the library.
-const R = (title, sec, description = '') => ({ title, sec, description });
+// "Warm Up for Success" is the team's warm-up poster, in order. The poster has
+// no times, so each motion starts at 30 seconds (one trip down and back) and
+// the combination moves at 45. Coaches can adjust and save it back.
+const R = (section, title, sec, description = '') => ({ section, title, sec, description });
 PRESET_DRILLS.push({
-  id: 'r001', type: 'series', title: 'Team Warm-up', category: 'Warm-up', preset: true, added: true, levels: [], videoUrl: '', cues: [],
-  description: 'Each motion is called and timed on its own',
+  id: 'r001', type: 'series', title: 'Warm Up for Success', category: 'Warm-up', preset: true, added: true, force: 2, levels: [], videoUrl: '', cues: [],
+  description: 'Bluejays Girls Wrestling warm-up. Each motion is called and timed on its own',
   moves: [
-    R('Jog', 60), R('High Knees', 30), R('Butt Kicks', 30), R('Karaoke Left', 30), R('Karaoke Right', 30),
-    R('Skips', 30), R('Walking Lunges', 30), R('Lateral Shuffle', 30), R('Backpedal', 30),
-    R('Sprawls', 30), R('Penetration Steps', 30, 'Level change, drive through'), R('Hip Heists', 30),
-    R('Forward Rolls', 30), R('Back Rolls', 30), R('Cartwheels', 30), R('Front Bridge', 30), R('Back Bridge', 30),
-    R('Spin Drill', 30, 'Switch directions on the whistle'),
+    // DYNAMIC MOVEMENT
+    R('Dynamic Movement', 'Arm Circles', 30, 'R/L down & back, Huggers'),
+    R('Dynamic Movement', 'Arm Swing Heel Raise', 30),
+    R('Dynamic Movement', 'Knee Hug', 30),
+    R('Dynamic Movement', 'Frankies', 30, 'Opposite side'),
+    R('Dynamic Movement', 'Lateral Lunges', 30),
+    R('Dynamic Movement', 'Graceful Lateral Bound', 30, 'Hand above head'),
+    R('Dynamic Movement', 'Grapevine', 30),
+    // ANIMAL STRENGTH & MOBILITY
+    R('Animal Strength & Mobility', 'Bunny Hop', 30, '4 way'),
+    R('Animal Strength & Mobility', 'Big Rabbit Jumps', 30),
+    R('Animal Strength & Mobility', 'Bear', 30, '4 way'),
+    R('Animal Strength & Mobility', 'Crab', 30, '4 way'),
+    R('Animal Strength & Mobility', 'Seal to Halfway Backwards Seal', 45),
+    // TUMBLING & AGILITY
+    R('Tumbling & Agility', 'Cartwheel', 30, 'Both directions'),
+    R('Tumbling & Agility', 'Shoulder Rolls', 30),
+    R('Tumbling & Agility', 'Backwards Rolls', 30, 'Stay small, knees to one side'),
+    R('Tumbling & Agility', 'Back Extensions', 30, 'Land on feet'),
+    R('Tumbling & Agility', 'Forward Roll, Cartwheel, Round Off, Back Extension', 45),
+    // WRESTLING FUNDAMENTALS
+    R('Wrestling Fundamentals', 'Pivots', 30, 'Foot up high, belly to the sky'),
+    R('Wrestling Fundamentals', 'Bear to Crab', 30, 'Slide heel'),
+    R('Wrestling Fundamentals', 'Shoulder Roll', 30),
+    R('Wrestling Fundamentals', 'Quadpod Step Out to Shoulder Roll', 30),
+    R('Wrestling Fundamentals', 'Short Sit', 30),
+    R('Wrestling Fundamentals', 'Elbow Down Short Sit', 30),
+    R('Wrestling Fundamentals', 'Elbow Down Short Sit, Change Over, Stand Up', 45),
   ],
 });
 PRESET_DRILLS.forEach(d => { if (d.type === 'series') d.durationSec = d.moves.reduce((s, m) => s + m.sec, 0); });

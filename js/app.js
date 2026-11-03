@@ -10,7 +10,7 @@ import { runChecks } from './check.js';
 import { openDictate } from './dictate.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO, OWNER_EMAIL } from './config.js';
 
-const PRESET_VERSION = '2';
+const PRESET_VERSION = '3';
 const app = $('#app');
 let user = null, liveRuns = [], unLive = null, booted = false;
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };

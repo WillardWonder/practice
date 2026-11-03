@@ -90,8 +90,9 @@ test('routine: one block, each motion its own timed segment', async () => {
   const b = drillToBlock(r);
   const segs = compile({ blocks: [b, drill('next', 60)] });
   assert.equal(segs.length, r.moves.length + 1);
-  assert.equal(segs[0].title, 'Jog'); assert.equal(segs[0].say, 'Team Warm-up. Jog');
-  assert.equal(segs[1].sub, `Team Warm-up · 2 of ${r.moves.length}`);
+  assert.equal(segs[0].title, 'Arm Circles'); assert.equal(segs[0].say, 'Warm Up for Success. Dynamic Movement. Arm Circles');
+  assert.equal(segs[1].sub, `Dynamic Movement · 2 of ${r.moves.length}`); assert.equal(segs[1].say, 'Arm Swing Heel Raise');
+  assert.equal(segs[7].say, 'Animal Strength & Mobility. Bunny Hop');
   assert.ok(segs[0].seriesStep); assert.ok(!segs[r.moves.length - 1].seriesStep);
   assert.equal(blockDuration(b), r.moves.reduce((s, m) => s + m.sec, 0));
 });

@@ -65,7 +65,7 @@ const local = {
   async listDrills() { return Object.values(localDb().drills); },
   async saveDrill(d) { const db = localDb(); d.id ||= newId(); d.createdBy ||= this.user.uid; d.updatedAt = now(); db.drills[d.id] = d; saveLocal(db); return d; },
   async deleteDrill(id) { const db = localDb(); delete db.drills[id]; saveLocal(db); },
-  async seedDrills() { const db = localDb(); PRESET_DRILLS.forEach(d => { db.drills[d.id] ||= { ...d }; }); saveLocal(db); return PRESET_DRILLS.length; },
+  async seedDrills() { const db = localDb(); PRESET_DRILLS.forEach(d => { if (!db.drills[d.id] || (d.force && (db.drills[d.id].force || 0) < d.force)) db.drills[d.id] = { ...d }; }); saveLocal(db); return PRESET_DRILLS.length; },
   async createRun(r) { const db = localDb(); r.id = newId(); db.runs[r.id] = r; saveLocal(db); window.dispatchEvent(new CustomEvent('local-run', { detail: r.id })); return r.id; },
   async updateRun(id, patch) { const db = localDb(); if (db.runs[id]) { Object.assign(db.runs[id], patch); saveLocal(db); window.dispatchEvent(new CustomEvent('local-run', { detail: id })); } },
   async runCommand(id, fn) {
@@ -185,7 +185,15 @@ const fb = {
     const existing = new Set((await m.getDocs(m.collection(this.db, 'drills'))).docs.map(d => d.id));
     let n = 0;
     PRESET_DRILLS.forEach(d => { if (!existing.has(d.id)) { const { id, ...data } = d; batch.set(m.doc(this.db, 'drills', id), { ...data, createdBy: this.user.uid, updatedAt: now() }); n++; } });
-    await batch.commit(); return n;
+    await batch.commit();
+    // Built-in items marked `force` (like the team warm-up) are refreshed when their version goes up.
+    for (const d of PRESET_DRILLS.filter(x => x.force && existing.has(x.id))) {
+      try {
+        const cur = await m.getDoc(m.doc(this.db, 'drills', d.id));
+        if ((cur.data()?.force || 0) < d.force) { const { id, ...data } = d; await m.setDoc(m.doc(this.db, 'drills', id), { ...data, createdBy: cur.data()?.createdBy || this.user.uid, updatedAt: now() }); n++; }
+      } catch (e) { /* only admins or the original creator can refresh it */ }
+    }
+    return n;
   },
   async createRun(r) { const m = this.m; const ref = await m.addDoc(m.collection(this.db, 'runs'), r); return ref.id; },
   async updateRun(id, patch) { await this.m.updateDoc(this.m.doc(this.db, 'runs', id), patch); },
