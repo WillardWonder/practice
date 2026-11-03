@@ -370,3 +370,7 @@ details summary { cursor: pointer; padding: 6px 0; }
   .hero .motto { font-size: 10px; letter-spacing: .12em; gap: 4px 8px; }
   .hero > .muted { display: none; }
 }
+.nowcard .nc-p { font-weight: 900; text-transform: uppercase; font-style: italic; font-size: 20px; margin-top: 8px; }
+.nowcard .nc-s { font-weight: 900; font-size: 18px; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nowcard .nc-t { font-family: var(--mono); font-weight: 900; font-size: 42px; color: var(--gold); line-height: 1; }
+.nowcard .nc-t.paused { opacity: .45; }

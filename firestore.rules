@@ -134,6 +134,12 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ---- Buildings / sites (which school or room a practice runs in) ----
+    match /sites/{id} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
     // ---- Shared coach-voice clips (generated once, reused by everyone) ----
     match /voice/{id} {
       allow read: if isMember();

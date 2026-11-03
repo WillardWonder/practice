@@ -40,6 +40,15 @@ function segsFor(practice, leadIn) {
   return segs;
 }
 
+// Where a run is right now, computed from its stored clock (used by the Live board).
+export function runStatus(run) {
+  const segs = segsFor({ ...run.practice }, run.leadIn || 0);
+  const c = JSON.parse(JSON.stringify(run.clock || newClock())); catchUp(segs, c);
+  const seg = segs[c.segIndex];
+  return { seg, next: segs[c.segIndex + 1], remaining: seg ? remainingMs(segs, c) / 1000 : 0, running: c.running, done: c.done || !seg,
+    index: c.segIndex, count: segs.length };
+}
+
 const motto = () => `<div class="motto">${MOTTO.map(esc).join('<span>•</span>')}</div>`;
 
 // ----------------------------------------------------------------------
@@ -94,7 +103,9 @@ function shellHTML() {
 }
 
 // ---- Start a new run ---------------------------------------------------
-function showPrestart() {
+async function showPrestart() {
+  try { S.sites = await store.listSites(); } catch (e) { S.sites = []; }
+  if (!S) return;
   const st = getSettings();
   const total = practiceDuration(S.practice);
   const div = document.createElement('div');
@@ -103,6 +114,7 @@ function showPrestart() {
     <div class="tiny">Ready to run</div>
     <h1 style="font-size:clamp(28px,5vw,56px);font-weight:900;font-style:italic;text-transform:uppercase">${esc(S.practice.title)}</h1>
     <div class="muted">${Math.round(total / 60)} min · ${S.practice.blocks.length} blocks · ends ~${new Date(Date.now() + (total + st.leadIn) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
+    ${S.sites?.length ? `<label class="field" style="min-width:260px"><span class="tiny">Where is this practice?</span><select class="input" id="l-site">${S.sites.map(x => `<option value="${x.id}" ${x.id === (S.user.prefs?.site || '') ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : ''}
     <button class="go" data-act="start">Start</button>
     <div class="small" id="l-voice" style="color:#93c5fd"></div>
     <div class="row wrap" style="justify-content:center;gap:8px;max-width:640px">
@@ -128,11 +140,14 @@ async function startRun() {
   const st = getSettings();
   const t = NOW();
   const clock = { ...newClock(), running: true, anchor: t };
+  const siteSel = $('#l-site'); const site = siteSel ? siteSel.value : '';
+  const siteName = site ? (S.sites.find(x => x.id === site)?.name || '') : '';
+  if (site && site !== S.user.prefs?.site) store.setMyPrefs({ site }).catch(() => {});
   const run = {
     practiceId: S.practice.id, practiceTitle: S.practice.title, levels: S.practice.levels || [], date: S.practice.date || new Date().toISOString().slice(0, 10),
     practice: { title: S.practice.title, blocks: S.practice.blocks, startTime: S.practice.startTime || '', notes: S.practice.notes || '' },
     coachUid: S.user.uid, coachName: S.user.name, controllerUid: S.user.uid, controllerName: S.user.name,
-    status: 'live', startedAt: t, heartbeat: t, plannedSec: practiceDuration(S.practice), leadIn: st.leadIn, clock, version: 1,
+    site, siteName, status: 'live', startedAt: t, heartbeat: t, plannedSec: practiceDuration(S.practice), leadIn: st.leadIn, clock, version: 1,
   };
   try {
     S.runId = await store.createRun(run);
@@ -187,6 +202,7 @@ function paintBadge() {
   const b = $('#l-badge'); if (!b || !S.run) return;
   const live = S.run.status === 'live';
   b.innerHTML = `${live ? `<span class="live-pill" style="color:#f87171">Live</span>` : `<span class="badge">${esc(S.run.status)}</span>`}
+    ${S.run.siteName ? `<span class="badge blue">${esc(S.run.siteName)}</span>` : ''}
     ${S.mode !== 'room' ? `<span class="badge ${S.online ? 'green' : 'red'}">${S.online ? '● Synced' : '● Offline — will sync'}</span>` : (S.online ? '' : '<span class="badge red">● Reconnecting</span>')}
     ${S.mode !== 'room' && S.run.controllerName ? `<span class="small" style="color:#64748b">Remote: ${esc(S.run.controllerName)}</span>` : ''}`;
 }
@@ -205,18 +221,36 @@ function paintTakeover() {
 }
 
 // ---- Room display (TV) -----------------------------------------------
-function startRoom(runId) {
+const ROOM_KEY = 'practice-room-site';
+async function startRoom(runId) {
   audio.keepAwake(true); // TV/laptop screen stays on; re-requested whenever the tab is visible again
   if (runId) { follow(runId); return; }
+  // Each TV belongs to one building, so practices at other schools don't take it over.
+  let sites = [];
+  try { sites = await store.listSites(); } catch (e) {}
+  if (!S) return;
+  S.sites = sites;
+  const saved = localStorage.getItem(ROOM_KEY);
+  if (sites.length && (saved === null || (saved && !sites.some(x => x.id === saved)))) return pickRoom(sites);
+  S.roomSite = saved || '';
   idleRoom();
   S.unwatchLive = store.watchLiveRuns((runs) => {
     if (!S) return;
-    const latest = runs.sort((a, b) => b.startedAt - a.startedAt)[0];
+    const mine = runs.filter(r => !S.roomSite || r.site === S.roomSite);
+    const latest = mine.sort((a, b) => b.startedAt - a.startedAt)[0];
     if (latest && latest.id !== S.runId) {
       S.unwatch && S.unwatch(); S.run = null; S.segs = []; S.lastSeg = -1; clearTimeout(S.idleTimer);
       follow(latest.id);
     }
   });
+}
+
+function pickRoom(sites) {
+  $('#l-stage').innerHTML = `<div class="stack" style="max-width:640px;width:100%;text-align:center">
+    <div class="idle"><div class="t2">Which room is this TV in?</div></div>
+    <div class="small muted">This TV will only show practices running in this building. You only pick once.</div>
+    ${sites.map(x => `<button class="btn xl" style="width:100%" data-act="room-pick" data-id="${x.id}">${esc(x.name)}</button>`).join('')}
+    <button class="btn lg ghost" data-act="room-pick" data-id="">Show any building</button></div>`;
 }
 
 async function idleRoom() {
@@ -230,7 +264,9 @@ async function idleRoom() {
     if (ps.length) today = `<div class="sub" style="margin-top:20px">Today: ${ps.map(p => `${esc(p.title)}${p.startTime ? ' · ' + esc(new Date(`2000-01-01T${p.startTime}`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : ''}`).join(' &nbsp;|&nbsp; ')}</div>`;
   } catch (e) {}
   if (!S || S.run) return;
-  $('#l-stage').innerHTML = `<div class="idle"><div class="t1">${esc(TEAM_NAME)}</div><div class="t2">${esc(PROGRAM_NAME)}</div>
+  const roomName = (S.sites || []).find(x => x.id === S.roomSite)?.name;
+  const bd = $('#l-badge'); if (bd && (S.sites || []).length) bd.innerHTML = `<button class="btn sm ghost" data-act="room-change" style="color:#64748b">${esc(roomName || 'All buildings')} ▾</button>`;
+  $('#l-stage').innerHTML = `<div class="idle"><div class="t1">${esc(TEAM_NAME)}</div><div class="t2">${esc(PROGRAM_NAME)}</div>${roomName ? `<div class="sub" style="margin-top:8px">${esc(roomName)}</div>` : ''}
     <div class="bigclock" id="l-bigclock"></div>${today}
     <div class="small" style="color:#475569;margin-top:24px">This screen switches on its own when a coach starts practice.</div></div>`;
 }
@@ -417,6 +453,8 @@ function act(a, el) {
   if (a === 'sound') { audio.unlock().then(ok => { audio.unlockVoice(); S.sound = true; audio.keepAwake(true); reschedule(); const b = $('#l-soundbtn'); if (b) b.textContent = ok ? '🔊' : '🔇 Blocked'; }); return; }
   if (a === 'fs') { document.documentElement.requestFullscreen?.().catch(() => {}); return; }
   if (a === 'takeover') return takeover();
+  if (a === 'room-pick') { localStorage.setItem(ROOM_KEY, el.dataset.id); const u = S.user, host = S.el; teardownLive(); renderLive(host, u, { mode: 'room' }); return; }
+  if (a === 'room-change') { localStorage.removeItem(ROOM_KEY); S.unwatchLive && S.unwatchLive(); S.unwatchLive = null; S.unwatch && S.unwatch(); S.run = null; S.segs = []; pickRoom(S.sites || []); return; }
   if (a === 'blocks') return blocksMenu();
   if (S.mode === 'room') return;
   if (a === 'lock') { S.locked = !S.locked; $('#live').classList.toggle('locked', S.locked); $('#l-lock').textContent = S.locked ? '🔒' : '🔓'; toast(S.locked ? 'Controls locked. Tap 🔒 to unlock.' : 'Unlocked'); return; }

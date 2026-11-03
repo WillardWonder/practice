@@ -48,7 +48,7 @@ const local = {
   async init(onUser) {
     const db = localDb(); saveLocal(db);
     this._onUser = onUser;
-    this.user = { uid: 'local', email: 'demo@local', name: 'Demo Coach', role: db.role || 'owner' };
+    this.user = { uid: 'local', email: 'demo@local', name: 'Demo Coach', role: db.role || 'owner', prefs: db.prefs || {} };
     onUser(this.user);
   },
   setDemoRole(role) { const db = localDb(); db.role = role; saveLocal(db); this.user = { ...this.user, role }; this._onUser(this.user); },
@@ -88,6 +88,10 @@ const local = {
     window.addEventListener('storage', h); window.addEventListener('local-run', h); emit();
     return () => { window.removeEventListener('storage', h); window.removeEventListener('local-run', h); };
   },
+  async listSites() { return Object.values(localDb().sites || {}).sort((a, b) => a.name.localeCompare(b.name)); },
+  async saveSite(name) { const db = localDb(); db.sites ||= {}; const id = newId(); db.sites[id] = { id, name }; saveLocal(db); return id; },
+  async deleteSite(id) { const db = localDb(); delete (db.sites || {})[id]; saveLocal(db); },
+  async setMyPrefs(patch) { const db = localDb(); db.prefs = { ...(db.prefs || {}), ...patch }; saveLocal(db); this.user.prefs = db.prefs; },
   async listUsers() { return [this.user]; },
   async setUser() {}, async listInvites() { return []; }, async saveInvite() {}, async deleteInvite() {},
   async seedTestAccounts() { throw new Error('Test accounts need Firebase. Add your config in js/config.js first.'); },
@@ -135,7 +139,7 @@ const fb = {
     }
     const d = snap.data();
     m.updateDoc(ref, { lastSeen: m.serverTimestamp() }).catch(() => {});
-    return { uid: u.uid, email, name: d.name, role: d.role };
+    return { uid: u.uid, email, name: d.name, role: d.role, prefs: d.prefs || {} };
   },
   async signInGoogle() { const m = this.m; await m.signInWithPopup(this.auth, new m.GoogleAuthProvider()); },
   async signInEmail(email, pw) { await this.m.signInWithEmailAndPassword(this.auth, email.trim(), pw); },
@@ -238,6 +242,10 @@ const fb = {
     const q = m.query(m.collection(this.db, 'runs'), m.where('status', '==', 'live'));
     return m.onSnapshot(q, s => cb(this._list(s).filter(r => now() - (r.heartbeat || 0) < 3 * 3600e3)), () => cb([]));
   },
+  async listSites() { return this._list(await this.m.getDocs(this.m.collection(this.db, 'sites'))).sort((a, b) => a.name.localeCompare(b.name)); },
+  async saveSite(name) { const ref = await this.m.addDoc(this.m.collection(this.db, 'sites'), { name, createdAt: now() }); return ref.id; },
+  async deleteSite(id) { await this.m.deleteDoc(this.m.doc(this.db, 'sites', id)); },
+  async setMyPrefs(patch) { const prefs = { ...(this.user.prefs || {}), ...patch }; await this.m.updateDoc(this.m.doc(this.db, 'users', this.user.uid), { prefs }); this.user.prefs = prefs; },
   async listUsers() { return this._list(await this.m.getDocs(this.m.collection(this.db, 'users'))).map(u => ({ uid: u.id, ...u })); },
   async setUser(uid, patch) { await this.m.updateDoc(this.m.doc(this.db, 'users', uid), patch); },
   async listInvites() { return this._list(await this.m.getDocs(this.m.collection(this.db, 'invites'))); },

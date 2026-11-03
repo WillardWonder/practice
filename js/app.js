@@ -3,7 +3,7 @@ import { store, can, canEditPractice, ROLES, ROLE_LABEL, isFirebase } from './st
 import { TEMPLATES, CATEGORIES, LEVELS, catColor, PHRASES } from './seed.js';
 import { practiceDuration, blockDuration, fmtDur, fmt, clockTimeLabel, setNowFn } from './engine.js';
 import { renderBuilder, flushSave, drillForm, readDrillForm } from './builder.js';
-import { renderLive, teardownLive, settingsModal } from './live.js';
+import { renderLive, teardownLive, settingsModal, runStatus } from './live.js';
 import { readOnlyPractice, printPractice } from './print.js';
 import { openShare } from './share.js';
 import { runChecks } from './check.js';
@@ -46,15 +46,15 @@ async function route() {
   if (!can(user, 'member')) return viewPending();
   const views = {
     '': viewHome, practices: viewPractices, p: viewPractice, edit: viewEdit, new: viewNew, run: viewRun, live: viewLiveRun,
-    room: viewRoom, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
+    room: viewRoom, now: viewNow, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
   };
   (views[name] || viewHome)(id);
 }
 
 function shell(active, inner) {
-  const tabs = [['', 'Home', '⌂'], ['practices', 'Practices', '▤'], ['library', 'Library', '☰'], ['history', 'History', '◷']];
+  const tabs = [['', 'Home', '⌂'], ['practices', 'Practices', '▤'], ['now', 'Live', '●'], ['library', 'Library', '☰'], ['history', 'History', '◷']];
   if (can(user, 'admin')) tabs.push(['admin', 'Admin', '⚙']);
-  if (user.role === 'athlete') tabs.splice(2, 2);
+  if (user.role === 'athlete') { tabs.splice(3, 2); }
   app.innerHTML = `
     ${!isFirebase ? `<div class="demo-banner">Local Demo mode: data stays in this browser only. ${user.role !== 'owner' ? '' : ''}Preview as:
       <select id="demorole" style="background:transparent;border:1px solid #a16207;border-radius:8px;padding:2px 6px">${ROLES.filter(r => r !== 'pending').map(r => `<option value="${r}" ${user.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select></div>` : ''}
@@ -74,13 +74,15 @@ function shell(active, inner) {
 
 function liveBar() {
   if (!liveRuns.length) return '';
-  return liveRuns.map(r => `<div class="livebar"><span class="live-pill">LIVE</span><b>${esc(r.practiceTitle)}</b><span class="muted small">${esc(r.controllerName || r.coachName || '')} · started ${timeAgo(r.startedAt)}</span>
+  if (liveRuns.length > 1) return `<div class="livebar"><span class="live-pill">LIVE</span><b>${liveRuns.length} practices running</b><span class="muted small">${liveRuns.map(r => esc(r.siteName || 'No building')).join(' · ')}</span><span class="grow"></span><a class="btn sm gold" href="#/now">See all live</a></div>`;
+  return liveRuns.map(r => `<div class="livebar"><span class="live-pill">LIVE</span>${r.siteName ? `<span class="badge blue">${esc(r.siteName)}</span>` : ''}<b>${esc(r.practiceTitle)}</b><span class="muted small">${esc(r.controllerName || r.coachName || '')} · started ${timeAgo(r.startedAt)}</span>
     <span class="grow"></span>${can(user, 'run') ? `<a class="btn sm gold" href="#/live/${r.id}">${r.controllerUid === user.uid ? 'Open remote' : 'Join'}</a>` : `<a class="btn sm" href="#/live/${r.id}">Follow</a>`}<a class="btn sm" href="#/room/${r.id}">📺 Display</a></div>`).join('');
 }
 
 function userMenu() {
   modal({ title: user.name || user.email, body: `<div class="stack">
     <div class="muted small">${esc(user.email)} · ${ROLE_LABEL[user.role]}</div>
+    <label class="field" id="mysite-wrap"><span class="tiny">My building</span><select class="input" id="mysite"><option value="">Loading…</option></select></label>
     <button class="btn lg" style="width:100%" data-act="sound">🔊 Sound & voice settings (this device)</button>
     <a class="btn lg" style="width:100%" href="#/check">✓ Check my access</a>
     ${isFirebase ? '<button class="btn lg danger" style="width:100%" data-act="out">Sign out</button>' : ''}
@@ -91,6 +93,12 @@ function userMenu() {
       if (el.tagName === 'A') close();
     } });
   $$('.overlay a').forEach(a => a.addEventListener('click', () => $('.overlay')?.remove()));
+  store.listSites().then(sites => {
+    const sel = $('#mysite'); if (!sel) return;
+    if (!sites.length) { $('#mysite-wrap').innerHTML = `<div class="small muted">${can(user, 'admin') ? 'Add your buildings under Admin → Buildings.' : ''}</div>`; return; }
+    sel.innerHTML = `<option value="">Not set</option>` + sites.map(x => `<option value="${x.id}" ${user.prefs?.site === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+    sel.onchange = () => store.setMyPrefs({ site: sel.value }).then(() => toast('Saved', 'success')).catch(e => toast(e.code || e.message, 'error'));
+  }).catch(() => {});
 }
 
 // ---- Auth views --------------------------------------------------------
@@ -357,6 +365,32 @@ async function viewRun(id) {
 function viewLiveRun(id) { app.innerHTML = ''; renderLive(app, user, { mode: 'remote', runId: id }); }
 function viewRoom(id) { app.innerHTML = ''; renderLive(app, user, { mode: 'room', runId: id || null }); }
 
+// ---- Live now: every building at once ----------------------------------------
+let nowTimer = null;
+function viewNow() {
+  shell('now', `<div class="page-head"><h1>Live now</h1><span class="muted small">Every building, updating live</span></div><div class="grid c2" id="board"></div>`);
+  const paint = () => {
+    const el = $('#board'); if (!el) { clearInterval(nowTimer); return; }
+    if (!liveRuns.length) { el.innerHTML = `<div class="empty" style="grid-column:1/-1">No practices running right now.</div>`; return; }
+    el.innerHTML = liveRuns.slice().sort((a, b) => (a.siteName || '').localeCompare(b.siteName || '')).map(r => {
+      const st = runStatus(r);
+      const seg = st.seg;
+      return `<div class="card nowcard" style="border-left:8px solid ${seg ? catColor(seg.category) : '#334155'}">
+        <div class="row between"><span class="badge blue">${esc(r.siteName || 'No building set')}</span><span class="small muted">${esc(r.controllerName || r.coachName || '')}</span></div>
+        <div class="nc-p">${esc(r.practiceTitle)}</div>
+        <div class="row between" style="align-items:flex-end;margin-top:6px">
+          <div style="min-width:0"><div class="tiny">${seg ? (seg.kind === 'rest' ? 'Rest' : seg.kind === 'leadin' ? 'Getting ready' : esc(seg.category || '')) : 'Done'}</div>
+            <div class="nc-s">${seg ? esc(seg.kind === 'leadin' ? 'Get ready' : seg.title) : 'Finished'}</div>
+            ${seg?.sub ? `<div class="small muted">${esc(seg.sub)}</div>` : ''}</div>
+          <div class="nc-t ${st.running ? '' : 'paused'}">${seg ? (st.remaining < 0 ? '+' + fmt(-st.remaining) : fmt(st.remaining)) : ''}</div></div>
+        <div class="catbar" style="margin:10px 0 8px">${Array.from({ length: st.count }, (_, i) => `<i style="width:${100 / st.count}%;background:${i < st.index ? '#3b82f6' : i === st.index ? '#facc15' : '#1e293b'}"></i>`).join('')}</div>
+        <div class="row wrap" style="gap:6px"><span class="small muted grow">${st.running ? '' : '⏸ Paused · '}${st.next ? 'Next: ' + esc(st.next.title) : ''}</span>
+          ${can(user, 'run') ? `<a class="btn sm" href="#/live/${r.id}">${r.controllerUid === user.uid ? 'Remote' : 'Join'}</a>` : `<a class="btn sm" href="#/live/${r.id}">Follow</a>`}<a class="btn sm" href="#/room/${r.id}">📺</a></div></div>`;
+    }).join('');
+  };
+  paint(); clearInterval(nowTimer); nowTimer = setInterval(paint, 1000);
+}
+
 // ---- Library ---------------------------------------------------------
 let libQ = '', libCat = '';
 async function viewLibrary() {
@@ -424,14 +458,14 @@ async function viewHistory() {
       <div class="catbar" style="height:14px">${Object.entries(catMin).sort((a, b) => b[1] - a[1]).map(([c, m]) => `<i title="${esc(c)} ${Math.round(m)} min" style="width:${m / catTotal * 100}%;background:${catColor(c)}"></i>`).join('')}</div>
       <div class="row wrap small" style="gap:12px;margin-top:8px">${Object.entries(catMin).sort((a, b) => b[1] - a[1]).map(([c, m]) => `<span><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${catColor(c)}"></span> ${esc(c)} ${Math.round(m)}m</span>`).join('')}</div></div>` : ''}
     <div class="card" style="margin-top:14px;padding:0;overflow-x:auto"><table class="list">
-      <tr><th>Date</th><th>Practice</th><th>Coach</th><th>Status</th><th>Planned → actual</th><th>Wrestlers</th><th></th></tr>
+      <tr><th>Date</th><th>Practice</th><th>Building</th><th>Coach</th><th>Status</th><th>Planned → actual</th><th>Wrestlers</th><th></th></tr>
       ${runs.map(r => `<tr class="click" data-r="${r.id}"><td>${new Date(r.startedAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}<div class="small muted">${new Date(r.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div></td>
-        <td><b>${esc(r.practiceTitle)}</b>${r.notes ? `<div class="small muted">${esc(r.notes.slice(0, 80))}</div>` : ''}</td><td>${esc(r.coachName || '')}</td>
-        <td>${runBadge(r)}</td><td class="small">${fmt(r.plannedSec || 0)} → ${r.actualSec ? fmt(r.actualSec) : '—'}</td><td>${r.attendance ?? '—'}</td><td>${r.rating ? '★'.repeat(r.rating) : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No practices run yet. Runs show up here after you press Start.</td></tr>'}
+        <td><b>${esc(r.practiceTitle)}</b>${r.notes ? `<div class="small muted">${esc(r.notes.slice(0, 80))}</div>` : ''}</td><td class="small">${esc(r.siteName || '')}</td><td>${esc(r.coachName || '')}</td>
+        <td>${runBadge(r)}</td><td class="small">${fmt(r.plannedSec || 0)} → ${r.actualSec ? fmt(r.actualSec) : '—'}</td><td>${r.attendance ?? '—'}</td><td>${r.rating ? '★'.repeat(r.rating) : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No practices run yet. Runs show up here after you press Start.</td></tr>'}
     </table></div>`;
   $$('[data-r]').forEach(tr => tr.onclick = () => location.hash = `#/history/${tr.dataset.r}`);
   $('#csv').onclick = () => {
-    const rows = [['date', 'practice', 'coach', 'status', 'planned_min', 'actual_min', 'paused_min', 'wrestlers', 'rating', 'notes']].concat(runs.map(r => [new Date(r.startedAt).toISOString(), r.practiceTitle, r.coachName, r.status, Math.round((r.plannedSec || 0) / 60), Math.round((r.actualSec || 0) / 60), Math.round((r.pausedSec || 0) / 60), r.attendance ?? '', r.rating ?? '', r.notes || '']));
+    const rows = [['date', 'practice', 'building', 'coach', 'status', 'planned_min', 'actual_min', 'paused_min', 'wrestlers', 'rating', 'notes']].concat(runs.map(r => [new Date(r.startedAt).toISOString(), r.practiceTitle, r.siteName || '', r.coachName, r.status, Math.round((r.plannedSec || 0) / 60), Math.round((r.actualSec || 0) / 60), Math.round((r.pausedSec || 0) / 60), r.attendance ?? '', r.rating ?? '', r.notes || '']));
     download(`practice-history-${today()}.csv`, rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   };
 }
@@ -450,7 +484,7 @@ async function viewRunDetail(id) {
       ${coach ? '<button class="btn sm" id="dup">Duplicate as new practice</button>' : ''}
       ${can(user, 'admin') ? '<button class="btn sm danger" id="del">Delete record</button>' : ''}</div></div>
     <div class="card pad-lg">
-      <div class="tiny">${new Date(r.startedAt).toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${esc(r.coachName || '')}</div>
+      <div class="tiny">${new Date(r.startedAt).toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${esc(r.coachName || '')}${r.siteName ? ' · ' + esc(r.siteName) : ''}</div>
       <h1 style="font-size:30px;font-weight:900;text-transform:uppercase;font-style:italic;margin-top:6px">${esc(r.practiceTitle)}</h1>
       <div class="row wrap" style="margin-top:10px;gap:8px">${runBadge(r)}<span class="badge">Planned ${fmt(r.plannedSec || 0)}</span>${r.actualSec ? `<span class="badge">Actual ${fmt(r.actualSec)}</span>` : ''}${r.pausedSec ? `<span class="badge">Paused ${fmt(r.pausedSec)}</span>` : ''}${r.endedBy ? `<span class="small muted">closed by ${esc(r.endedBy)}</span>` : ''}</div>
     </div>
@@ -485,7 +519,7 @@ async function viewRunDetail(id) {
 async function viewAdmin() {
   if (!can(user, 'admin')) { location.hash = '#/'; return; }
   shell('admin', `<div class="muted">Loading…</div>`);
-  const [users, invites] = await Promise.all([store.listUsers().catch(() => []), store.listInvites().catch(() => [])]);
+  const [users, invites, sites] = await Promise.all([store.listUsers().catch(() => []), store.listInvites().catch(() => []), store.listSites().catch(() => [])]);
   const assignable = ROLES.filter(r => r !== 'owner');
   $('main').innerHTML = `<div class="page-head"><h1>Admin</h1></div>
     ${!isFirebase ? '<div class="card" style="border-color:#a16207">Local Demo mode: user management needs Firebase.</div>' : ''}
@@ -495,6 +529,10 @@ async function viewAdmin() {
         <td>${u.role === 'owner' ? '<span class="badge gold">Owner</span>' : `<select class="input" data-uid="${u.uid}" style="width:auto;padding:6px 10px">${assignable.map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>`}</td>
         <td class="small muted">${u.lastSeen?.toMillis ? timeAgo(u.lastSeen.toMillis()) : ''}</td></tr>`).join('')}</table></div>
     <div class="small muted" style="margin-top:6px">Admin Coach: everything, including this page. Coach: build, run, share. Viewer: read-only. Athlete: sees practices shared with athletes and the live screen. Pending: no access.</div>
+    <div class="section-title">Buildings</div>
+    <div class="card"><div class="small muted" style="margin-bottom:8px">Each live practice is tagged with its building. Each room TV is set to one building and only shows practices there.</div>
+      <div class="row wrap" style="gap:6px" id="sites">${sites.map(x => `<span class="chip on">${esc(x.name)} <button class="btn ghost sm" data-delsite="${x.id}" style="padding:0 4px;color:#111">✕</button></span>`).join('') || '<span class="muted small">None yet.</span>'}</div>
+      <form class="row wrap" id="sitef" style="gap:8px;margin-top:10px"><input class="input" id="sitename" placeholder="e.g. Merrill High School, Prairie River MS" style="max-width:340px" required><button class="btn primary">Add building</button></form></div>
     <div class="section-title">Invite by email</div>
     <div class="card"><form class="row wrap" id="inv" style="gap:8px"><input class="input" type="email" id="ie" placeholder="coach@school.org" required style="max-width:320px">
       <select class="input" id="ir" style="width:auto">${['coach', 'admin', 'viewer', 'athlete'].map(r => `<option value="${r}">${ROLE_LABEL[r]}</option>`).join('')}</select><button class="btn primary">Add invite</button></form>
@@ -507,6 +545,8 @@ async function viewAdmin() {
       <div class="card stack"><b>Check permissions</b><div class="small muted">Runs real read and write checks against Firebase as you. Sign in as each test account and run it to confirm each role.</div><a class="btn" href="#/check">Run access check</a></div>
     </div>`;
   $$('[data-uid]').forEach(s => s.onchange = async () => { try { await store.setUser(s.dataset.uid, { role: s.value }); toast('Role updated', 'success'); } catch (e) { toast(e.code || e.message, 'error'); } });
+  $('#sitef').onsubmit = async (e) => { e.preventDefault(); try { await store.saveSite($('#sitename').value.trim()); viewAdmin(); } catch (err) { toast(err.code || err.message, 'error'); } };
+  $$('[data-delsite]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove building?', 'Past practice records keep the building name.', 'Remove')) { await store.deleteSite(b.dataset.delsite); viewAdmin(); } });
   $('#inv').onsubmit = async (e) => { e.preventDefault(); try { await store.saveInvite($('#ie').value, $('#ir').value); toast('Invite added', 'success'); viewAdmin(); } catch (err) { toast(err.code || err.message, 'error'); } };
   $$('[data-delinv]').forEach(b => b.onclick = async () => { await store.deleteInvite(b.dataset.delinv); viewAdmin(); });
   $('#seedU').onclick = async () => { $('#seedU').disabled = true; $('#seedOut').textContent = 'Working…'; try { $('#seedOut').textContent = (await store.seedTestAccounts()).join('\n'); } catch (e) { $('#seedOut').textContent = e.message; } $('#seedU').disabled = false; };
