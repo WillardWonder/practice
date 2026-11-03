@@ -45,7 +45,7 @@ export function confirmBox(title, text, okLabel = 'Confirm', danger = true) {
 const SKEY = 'practice-settings-v1';
 export const DEFAULT_SETTINGS = {
   sound: true, style: 'buzzer', volume: 1, countdown: true, voice: true, voiceName: '', voiceRate: 1.05,
-  warn30: true, previewNext: true, leadIn: 10, readDescription: false, voiceCommands: false,
+  warn30: true, previewNext: true, voiceMode: 'ai', aiVoice: 'Fenrir', aiStyle: 'hype', leadIn: 10, readDescription: false, voiceCommands: false,
 };
 export function getSettings() { try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SKEY) || '{}') }; } catch (e) { return { ...DEFAULT_SETTINGS }; } }
 export function setSettings(patch) { const s = { ...getSettings(), ...patch }; localStorage.setItem(SKEY, JSON.stringify(s)); return s; }

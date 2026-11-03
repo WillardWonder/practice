@@ -7,6 +7,7 @@ import { esc, $, toast, modal, confirmBox, getSettings, setSettings } from './ui
 import { catColor, PHRASES } from './seed.js';
 import { compile, newClock, segDur, elapsedMs, remainingMs, catchUp, applyCommand, remainingTotalMs, fmt, fmtDur, practiceDuration, NOW } from './engine.js';
 import * as audio from './audio.js';
+import * as voice from './voice.js';
 import { store, can, isFirebase } from './store.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO } from './config.js';
 
@@ -103,6 +104,7 @@ function showPrestart() {
     <h1 style="font-size:clamp(28px,5vw,56px);font-weight:900;font-style:italic;text-transform:uppercase">${esc(S.practice.title)}</h1>
     <div class="muted">${Math.round(total / 60)} min · ${S.practice.blocks.length} blocks · ends ~${new Date(Date.now() + (total + st.leadIn) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
     <button class="go" data-act="start">Start</button>
+    <div class="small" id="l-voice" style="color:#93c5fd"></div>
     <div class="row wrap" style="justify-content:center;gap:8px;max-width:640px">
       <button class="btn" data-act="soundcheck">🔊 Sound check</button>
       <button class="btn" data-act="settings">⚙ Sound & voice</button>
@@ -116,6 +118,7 @@ function showPrestart() {
       Bluetooth page-turner clickers work as a remote: → next, ← back.
     </div>`;
   $('#live').appendChild(div);
+  prepareVoice(segsFor(S.practice, st.leadIn));
 }
 
 async function startRun() {
@@ -163,6 +166,7 @@ function onRun(run, meta = {}) {
   if (first || !S.segs.length) {
     S.practice = { ...run.practice, id: run.practiceId };
     S.segs = segsFor(S.practice, run.leadIn || 0);
+    prepareVoice(S.segs);
     const tt = $('#l-title'); if (tt) tt.textContent = run.practiceTitle;
     S.lastSeg = -1;
   }
@@ -251,11 +255,34 @@ function loop() {
   if (S.clock.done && S.run.status === 'live' && can(S.user, 'run') && !S.finishing) finishRun(false);
 }
 
+function lineFor(segs, i) {
+  const seg = segs[i]; if (!seg) return '';
+  let line = seg.say || seg.title;
+  if (seg.kind === 'rest') { const nx = segs.slice(i + 1).find(s => s.kind !== 'rest'); if (nx) line = `Rest. ${PHRASES.next(nx.title)}`; }
+  if (seg.kind === 'work' && seg.description && getSettings().readDescription && !seg.assignments) line += `. ${seg.description}`;
+  return line;
+}
+function previewFor(segs, i) {
+  const seg = segs[i], nx = segs[i + 1]; if (!seg || !nx) return '';
+  if (nx.kind === 'work' && !(nx.assignments && nx.blockIndex === seg.blockIndex)) return nx.assignments ? PHRASES.nextRotation : PHRASES.next(nx.title);
+  return '';
+}
+// Every line this practice can say, so the natural voice can be made ahead of time.
+function allLines(segs) {
+  const out = ['Sound check. Champions are made today.', 'Paused', 'Go', 'Switch!', '30 seconds', 'Time. Coach, tap next when ready.', PHRASES.done];
+  segs.forEach((s, i) => { out.push(lineFor(segs, i)); if (!s.seriesStep) out.push(previewFor(segs, i)); });
+  return out;
+}
+function prepareVoice(segs) {
+  const el = $('#l-voice');
+  voice.prepare(allLines(segs), (done, total, ready) => { const e = $('#l-voice'); if (e) e.textContent = `🎙 Coach voice ${ready}/${total} ready`; })
+    .then(r => { const e = $('#l-voice'); if (e && r.total) e.textContent = r.ready === r.total ? '🎙 Coach voice ready' : voice.isDisabled() ? `🎙 Natural voice unavailable, using device voice (${r.ready}/${r.total} ready)` : `🎙 ${r.ready}/${r.total} lines ready, the rest use the device voice`; });
+  if (el && getSettings().voiceMode !== 'ai') el.textContent = '';
+}
+
 function announce(i) {
   const seg = S.segs[i]; if (!seg || !S.sound) return;
-  let line = seg.say || seg.title;
-  if (seg.kind === 'rest') { const nx = S.segs.slice(i + 1).find(s => s.kind !== 'rest'); if (nx) line = `Rest. ${PHRASES.next(nx.title)}`; }
-  if (seg.kind === 'work' && seg.description && getSettings().readDescription && !seg.assignments) line += `. ${seg.description}`;
+  const line = lineFor(S.segs, i);
   audio.speak(line);
   if ('mediaSession' in navigator) try { navigator.mediaSession.metadata = new MediaMetadata({ title: seg.title, artist: S.practice.title }); } catch (e) {}
 }
@@ -268,8 +295,7 @@ function cues() {
   if (seg.switchAtHalf && !f.sw && el >= dur / 2 && rem > 2) { f.sw = true; audio.speak('Switch!'); }
   if (st.warn30 && dur >= 90 && !f.w30 && rem <= 30 && rem > 27) { f.w30 = true; audio.speak('30 seconds'); }
   if (st.previewNext && dur >= 40 && !f.nx && rem <= 15 && rem > 11 && seg.kind !== 'leadin' && !seg.seriesStep) {
-    f.nx = true; const nx = S.segs[i + 1];
-    if (nx && nx.kind === 'work' && !(nx.assignments && nx.blockIndex === seg.blockIndex)) audio.speak(nx.assignments ? PHRASES.nextRotation : PHRASES.next(nx.title));
+    f.nx = true; const line = previewFor(S.segs, i); if (line) audio.speak(line);
   }
   if (seg.holdAtEnd && !f.hold && rem <= 0) { f.hold = true; audio.speak('Time. Coach, tap next when ready.'); }
 }
@@ -472,10 +498,18 @@ export function settingsModal(onDone) {
     <label class="field"><span class="tiny">Volume boost</span><input type="range" min="0" max="1" step="0.05" value="${st.volume}" id="s-vol" style="width:100%"></label>
     ${tg('countdown', '3-2-1 countdown beeps')}
     ${tg('voice', 'Voice announcements', 'Says each drill, "Rest", "Switch!", "Rotate!"')}
+    <div><div class="tiny" style="margin-bottom:6px">Voice</div><div class="seg" style="display:flex">${[['ai', '🎙 Natural coach voice'], ['device', 'Device voice']].map(([v, l]) => `<button class="${(st.voiceMode || 'ai') === v ? 'on' : ''}" data-act="vmode" data-v="${v}">${l}</button>`).join('')}</div></div>
+    <div id="s-ai" class="${(st.voiceMode || 'ai') === 'ai' ? '' : 'hidden'}">
+      <div class="tiny" style="margin:6px 0">Coach voice</div>
+      <div class="row wrap" style="gap:6px">${voice.AI_VOICES.map(([v, l]) => `<button class="chip ${st.aiVoice === v ? 'on' : ''}" data-act="aiv" data-v="${v}">${l}</button>`).join('')}</div>
+      <div class="seg" style="display:flex;margin-top:8px">${[['hype', '🔥 Fired up'], ['calm', 'Calm']].map(([v, l]) => `<button class="${(st.aiStyle || 'hype') === v ? 'on' : ''}" data-act="ais" data-v="${v}">${l}</button>`).join('')}</div>
+      <button class="btn" data-act="vprev" style="width:100%;margin-top:8px">▶ Hear this voice</button>
+      <div class="small muted" style="margin-top:6px">Lines are made once and shared with every coach, so it only takes a few seconds the first time a drill is used.</div>
+    </div>
     ${tg('warn30', '"30 seconds" warning', 'On drills 1:30 or longer')}
     ${tg('previewNext', '"Next up" preview', '15 seconds before a change')}
     ${tg('readDescription', 'Read the description out loud too')}
-    ${vs.length ? `<label class="field"><span class="tiny">Voice</span><select class="input" id="s-voice"><option value="">Default</option>${vs.map(v => `<option ${v.name === st.voiceName ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select></label>` : ''}
+    ${vs.length ? `<label class="field"><span class="tiny">Device voice (backup)</span><select class="input" id="s-voice"><option value="">Best available</option>${vs.map(v => `<option ${v.name === st.voiceName ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select></label>` : ''}
     <label class="field"><span class="tiny">"Get ready" countdown after Start</span><select class="input" id="s-lead">${[0, 5, 10, 15, 30].map(s => `<option value="${s}" ${st.leadIn === s ? 'selected' : ''}>${s ? s + ' seconds' : 'None'}</option>`).join('')}</select></label>
     ${(window.SpeechRecognition || window.webkitSpeechRecognition) ? tg('voiceCommands', 'Voice commands (beta)', 'Say "Coach, pause", "Coach, go", "Coach, next", or "Coach, add a minute". Works best in Chrome on Android. Takes effect at the next Start.') : ''}
     <div class="small muted">If the phone and the room TV are both playing sound, turn sound off on one of them.</div>
@@ -485,6 +519,9 @@ export function settingsModal(onDone) {
       if (a === 't') { const k = el.dataset.k; const v = !getSettings()[k]; setSettings({ [k]: v }); el.classList.toggle('on', v); }
       if (a === 'style') { setSettings({ style: el.dataset.v }); w.querySelectorAll('[data-act=style]').forEach(b => b.classList.toggle('on', b === el)); applySettings(); audio.unlock().then(() => audio.schedule([{ inMs: 0, kind: 'horn' }])); }
       if (a === 'test') audio.unlock().then(() => { applySettings(); audio.test(); });
+      if (a === 'vmode') { setSettings({ voiceMode: el.dataset.v }); w.querySelectorAll('[data-act=vmode]').forEach(b => b.classList.toggle('on', b === el)); w.querySelector('#s-ai').classList.toggle('hidden', el.dataset.v !== 'ai'); if (el.dataset.v === 'device') audio.unlock().then(() => audio.speak('Sound check. Champions are made today.')); }
+      if (a === 'aiv' || a === 'ais') { setSettings(a === 'aiv' ? { aiVoice: el.dataset.v } : { aiStyle: el.dataset.v }); w.querySelectorAll(`[data-act=${a}]`).forEach(b => b.classList.toggle('on', b === el)); }
+      if (a === 'aiv' || a === 'ais' || a === 'vprev') { const s2 = getSettings(); el.disabled = true; voice.preview(s2.aiVoice, s2.aiStyle).catch(e => toast(e.message, 'error')).finally(() => { el.disabled = false; }); if (S && S.segs.length) prepareVoice(S.segs); }
       applySettings(); if (S) { S.st = getSettings(); reschedule(); }
     },
     onClose: () => { if (S) { S.st = applySettings(); reschedule(); } onDone && onDone(); } });

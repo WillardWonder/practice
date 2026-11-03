@@ -46,4 +46,7 @@ export const TEST_ACCOUNTS = [
 // Tried in order; the first name the project supports is used.
 export const AI_MODELS = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
 
+// Natural coach voice (Gemini text-to-speech through Firebase AI Logic)
+export const TTS_MODEL = 'gemini-3.1-flash-tts-preview';
+
 export const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/12.19.0';

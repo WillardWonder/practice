@@ -38,21 +38,36 @@ export async function unlock() {
     silentEl = new Audio(silentWavUrl()); silentEl.loop = true; silentEl.setAttribute('playsinline', ''); silentEl.volume = 0.01;
   }
   silentEl.play().catch(() => {});
-  if (!ctx) {
-    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -6; limiter.knee.value = 2; limiter.ratio.value = 20; limiter.attack.value = 0.001; limiter.release.value = 0.08;
-    drive = ctx.createWaveShaper(); drive.curve = makeDrive(2.2); drive.oversample = '2x';
-    master = ctx.createGain(); master.gain.value = gainFor(settings.volume);
-    drive.connect(limiter); limiter.connect(master); master.connect(ctx.destination);
-    // A near-silent constant tone keeps mobile browsers from suspending the context.
-    keepAlive = ctx.createOscillator(); const kg = ctx.createGain(); kg.gain.value = 0.0001;
-    keepAlive.frequency.value = 40; keepAlive.connect(kg); kg.connect(ctx.destination); keepAlive.start();
-  }
+  ensureCtx();
   if (ctx.state !== 'running') await ctx.resume().catch(() => {});
   // A single silent sample also unlocks iOS output.
   const b = ctx.createBuffer(1, 1, 22050); const s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0);
   return ctx.state === 'running';
+}
+
+let voiceIn = null;
+function ensureCtx() {
+  if (ctx) return ctx;
+  ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -6; limiter.knee.value = 2; limiter.ratio.value = 20; limiter.attack.value = 0.001; limiter.release.value = 0.08;
+  drive = ctx.createWaveShaper(); drive.curve = makeDrive(2.2); drive.oversample = '2x';
+  master = ctx.createGain(); master.gain.value = gainFor(settings.volume);
+  drive.connect(limiter); limiter.connect(master); master.connect(ctx.destination);
+  // Voice gets its own clean chain (no distortion): gentle compression + makeup gain
+  const vc = ctx.createDynamicsCompressor(); vc.threshold.value = -26; vc.ratio.value = 4; vc.attack.value = 0.003; vc.release.value = 0.15;
+  const vg = ctx.createGain(); vg.gain.value = 1.8;
+  vc.connect(vg); vg.connect(ctx.destination); voiceIn = vc;
+  // A near-silent constant tone keeps mobile browsers from suspending the context.
+  keepAlive = ctx.createOscillator(); const kg = ctx.createGain(); kg.gain.value = 0.0001;
+  keepAlive.frequency.value = 40; keepAlive.connect(kg); kg.connect(ctx.destination); keepAlive.start();
+  return ctx;
+}
+export function context() { try { return ensureCtx(); } catch (e) { return null; } }
+export function playBuffer(buf) {
+  if (!ctx || !buf) return null;
+  try { speechSynthesis.cancel(); } catch (e) {}
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(voiceIn); src.start(); return src;
 }
 
 export const isUnlocked = () => !!ctx && ctx.state === 'running';
@@ -148,12 +163,24 @@ export function test() { schedule([{ inMs: 0, kind: 'beep' }, { inMs: 400, kind:
 const voice = { enabled: true, rate: 1.05, name: '' };
 export function configureVoice(o) { Object.assign(voice, o); }
 export function voices() { return (window.speechSynthesis?.getVoices() || []).filter(v => /^en/i.test(v.lang)); }
+// Pick the most natural voice the device has. Robot-sounding defaults rank last.
+const RANK = [/natural/i, /neural/i, /premium/i, /enhanced/i, /online/i, /^Google US English$/i, /Google UK English (Female|Male)/i,
+  /\b(Ava|Zoe|Evan|Nathan|Samantha|Allison|Susan|Tom|Aria|Jenny|Guy|Davis|Andrew|Emma|Brian)\b/i];
+export function bestVoice() {
+  const vs = voices(); if (!vs.length) return null;
+  const score = (v) => { const i = RANK.findIndex(r => r.test(v.name)); return (i < 0 ? 100 : i) + (/en-US/i.test(v.lang) ? 0 : 0.5) + (v.localService ? 0.2 : 0); };
+  return vs.slice().sort((a, b) => score(a) - score(b))[0];
+}
+let speakHook = null;
+export function setSpeakHook(f) { speakHook = f; }
 export function speak(text, { interrupt = true } = {}) {
-  if (!voice.enabled || !window.speechSynthesis || !text) return;
+  if (!voice.enabled || !text) return;
+  if (speakHook && speakHook(text)) return;
+  if (!window.speechSynthesis) return;
   if (interrupt) speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = voice.rate; u.volume = 1; u.pitch = 1;
-  const v = voices().find(v => v.name === voice.name); if (v) u.voice = v;
+  const v = voices().find(v => v.name === voice.name) || bestVoice(); if (v) u.voice = v;
   speechSynthesis.speak(u);
 }
 export function unlockVoice() {
