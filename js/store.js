@@ -88,6 +88,10 @@ const local = {
     window.addEventListener('storage', h); window.addEventListener('local-run', h); emit();
     return () => { window.removeEventListener('storage', h); window.removeEventListener('local-run', h); };
   },
+  async listAliases() { return Object.values(localDb().aliases || {}); },
+  async saveAlias(phrase, drillId) { const db = localDb(); db.aliases ||= {}; const k = phrase.toLowerCase().trim(); db.aliases[k] = { phrase: k, drillId, at: now() }; saveLocal(db); },
+  async listExamples() { return Object.values(localDb().examples || {}).sort((a, b) => b.at - a.at).slice(0, 60); },
+  async saveExample(ex) { const db = localDb(); db.examples ||= {}; const id = ex.practiceId || newId(); db.examples[id] = { ...ex, at: now() }; saveLocal(db); },
   async listSites() { return Object.values(localDb().sites || {}).sort((a, b) => a.name.localeCompare(b.name)); },
   async saveSite(name) { const db = localDb(); db.sites ||= {}; const id = newId(); db.sites[id] = { id, name }; saveLocal(db); return id; },
   async deleteSite(id) { const db = localDb(); delete (db.sites || {})[id]; saveLocal(db); },
@@ -250,6 +254,11 @@ const fb = {
     const q = m.query(m.collection(this.db, 'runs'), m.where('status', '==', 'live'));
     return m.onSnapshot(q, s => cb(this._list(s).filter(r => now() - (r.heartbeat || 0) < 3 * 3600e3)), () => cb([]));
   },
+  async listAliases() { return this._list(await this.m.getDocs(this.m.collection(this.db, 'aliases'))); },
+  async saveAlias(phrase, drillId) { const k = phrase.toLowerCase().trim().replace(/[\/#?]/g, ' ').slice(0, 100); if (!k) return;
+    await this.m.setDoc(this.m.doc(this.db, 'aliases', k), { phrase: k, drillId, by: this.user.uid, at: now() }); },
+  async listExamples() { const m = this.m; return this._list(await m.getDocs(m.query(m.collection(this.db, 'examples'), m.orderBy('at', 'desc'), m.limit(60)))); },
+  async saveExample(ex) { const m = this.m; const id = ex.practiceId || newId(); await m.setDoc(m.doc(this.db, 'examples', id), { ...ex, by: this.user.uid, at: now() }); },
   async listSites() { return this._list(await this.m.getDocs(this.m.collection(this.db, 'sites'))).sort((a, b) => a.name.localeCompare(b.name)); },
   async saveSite(name) { const ref = await this.m.addDoc(this.m.collection(this.db, 'sites'), { name, createdAt: now() }); return ref.id; },
   async deleteSite(id) { await this.m.deleteDoc(this.m.doc(this.db, 'sites', id)); },

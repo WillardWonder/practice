@@ -5,7 +5,7 @@
 // A refresh, a sleeping phone, or a second device can't reset the clock.
 import { esc, $, toast, modal, confirmBox, getSettings, setSettings } from './ui.js';
 import { catColor, PHRASES } from './seed.js';
-import { compile, newClock, segDur, elapsedMs, remainingMs, catchUp, applyCommand, remainingTotalMs, fmt, fmtDur, practiceDuration, NOW } from './engine.js';
+import { blockDuration, compile, newClock, segDur, elapsedMs, remainingMs, catchUp, applyCommand, remainingTotalMs, fmt, fmtDur, practiceDuration, NOW } from './engine.js';
 import * as audio from './audio.js';
 import * as voice from './voice.js';
 import { store, can, isFirebase } from './store.js';
@@ -149,6 +149,9 @@ async function startRun() {
     coachUid: S.user.uid, coachName: S.user.name, controllerUid: S.user.uid, controllerName: S.user.name,
     site, siteName, status: 'live', startedAt: t, heartbeat: t, plannedSec: practiceDuration(S.practice), leadIn: st.leadIn, clock, version: 1,
   };
+  if (S.practice.dictation) store.saveExample({ practiceId: S.practice.id, transcript: S.practice.dictation, title: S.practice.title,
+    blocks: S.practice.blocks.map(b => ({ type: b.type, title: b.title, category: b.category, minutes: Math.round(blockDuration(b) / 6) / 10, drillId: b.drillId || null,
+      rounds: b.rounds, workSec: b.workSec, restSec: b.restSec, stations: b.stations?.map(x => x.title), mode: b.mode })) }).catch(() => {});
   try {
     S.runId = await store.createRun(run);
   } catch (e) { toast('Could not start: ' + (e.code || e.message), 'error'); return; }

@@ -21,6 +21,8 @@ import { CATEGORIES, makeRest, newId, drillToBlock } from './seed.js';
 import { practiceDuration, blockDuration, fmtDur } from './engine.js';
 import { readOnlyPractice } from './print.js';
 import { FIREBASE_SDK, AI_MODELS } from './config.js';
+import { matchDrills, similar, diagnose } from './understand.js';
+import { catColor } from './seed.js';
 
 // ---- Practice-design rules the planner must follow -------------------------
 const PRINCIPLES = `
@@ -38,6 +40,10 @@ PRACTICE DESIGN RULES (follow unless the coach says otherwise):
 - Youth / beginners: more games, shorter blocks (≤8 minutes), more water.
 - Conditioning day: more conditioning, but still warm-up first and cool-down last.
 - Respect every explicit number the coach says (total time, number of goes, minutes per station, number of drills) exactly.
+- STAY ON WHAT THE COACH SAID. Every drill in "MATCHED FROM WHAT THE COACH SAID" must be its own block (or a station). Do not add techniques from positions the coach didn't mention.
+- When the coach names a position or theme without specific moves ("ride hard on top", "work bottom", "finish singles"), choose 2-4 library drills from THAT position that build on each other (setup → finish → chain/counter), then a situational or live block in that same position.
+- Only use filler to reach the total time when needed, and fill with more time on the coach's own topics first (longer blocks, more goes), not new topics.
+- If the team examples below show how this coach usually builds a similar practice, follow that pattern (same drills, order and timing) unless the coach asked for something different.
 - Use the coach's wording. Prefer library drills; invent a drill (drillId null) only when the coach names something not in the library.
 `;
 
@@ -91,10 +97,25 @@ function libraryText(drills) {
   return drills.map(d => `${d.id} | ${d.title} | ${d.category} | ${Math.round(d.durationSec / 60)}m${d.type === 'series' ? ' | ROUTINE, fixed length, add as a drill block with this drillId' : d.description ? ' | ' + d.description : ''}`).join('\n');
 }
 
-function planPrompt(drills, history, text, current) {
+function contextText(ctx) {
+  const lines = [];
+  const dg = ctx.diag;
+  if (dg) {
+    if (dg.day !== 'normal') lines.push(`DAY TYPE: ${dg.day.toUpperCase()}${dg.day === 'light' ? ' (shorter blocks, crisp drilling, short live only, NO hard conditioning, finish with a team talk)' : ''}`);
+    if (dg.positions.length) lines.push(`FOCUS POSITION(S) THE COACH NAMED: ${dg.positions.join(', ')}. Most of the technique time goes here.`);
+    dg.fixes.forEach(f => lines.push(`COACH'S PROBLEM: ${f.problem}. This is the main purpose of today's practice.\nHOW TO FIX IT: ${f.plan}\nUSE 4-6 OF THESE, IN THIS ORDER, as the core of the practice:\n${f.drills.map(d => `- ${d.id} | ${d.title} | ${d.category}`).join('\n')}\nThen finish the focus with a short situational or live block from that position (e.g. goes starting from ${f.position.toLowerCase()}).`));
+  }
+  if (ctx.matches.length) lines.push(`MATCHED FROM WHAT THE COACH SAID (must each be in the plan):\n${ctx.matches.map(m => `- "${m.phrase}" → ${m.drill.id} | ${m.drill.title} | ${m.drill.category}`).join('\n')}`);
+  if (ctx.examples.length) lines.push(`TEAM EXAMPLES (what this coaching staff actually ran after saying something similar):\n${ctx.examples.map(e => `- SAID: "${e.transcript}"\n  RAN: ${(e.blocks || []).map(b => b.type === 'goes' ? `${b.rounds}x${Math.round(b.workSec / 6) / 10}m goes` : b.type === 'rotation' ? `stations(${(b.stations || []).join(', ')})` : `${b.title} ${b.minutes}m`).join(' → ')}`).join('\n')}`);
+  if (ctx.recent.length) lines.push(`RECENT TEAM PRACTICES (for style and typical times):\n${ctx.recent.map(p => `- ${p.title}: ${(p.blocks || []).slice(0, 14).map(b => `${b.title}${b.type === 'drill' ? ' ' + Math.round(b.durationSec / 60) + 'm' : ''}`).join(', ')}`).join('\n')}`);
+  return lines.join('\n\n');
+}
+
+function planPrompt(drills, history, text, current, ctx) {
   return `You are the head coach's practice planner for Bluejays Girls Wrestling ("Champion Making Process").
 Build the best possible practice from what the coach says, like an experienced wrestling coach would.
 ${PRINCIPLES}
+${contextText(ctx)}
 DRILL LIBRARY (id | title | category | default minutes | notes):
 ${libraryText(drills)}
 
@@ -108,11 +129,12 @@ ${history.map(h => `${h.role.toUpperCase()}: ${h.text}`).join('\n')}
 COACH: ${text}`;
 }
 
-function fixPrompt(drills, history, plan, problems) {
+function fixPrompt(drills, history, plan, problems, ctx) {
   return `You are the practice planner for Bluejays Girls Wrestling. Your last plan has problems. Fix ALL of them and return the full corrected plan in the same JSON format.
 PROBLEMS:
 ${problems.map(p => '- ' + p).join('\n')}
 ${PRINCIPLES}
+${contextText(ctx)}
 DRILL LIBRARY (id | title | category | default minutes | notes):
 ${libraryText(drills)}
 ${FORMAT}
@@ -157,8 +179,13 @@ const PHASE = { 'Team Talk': 0, 'Warm-up': 1, Neutral: 3, Top: 4, Bottom: 4, Spe
 const phaseOf = (b) => b.type === 'goes' ? 6 : b.type === 'rotation' ? 4 : PHASE[b.category] ?? 4;
 
 // Rescale flexible drill blocks so the total hits the target. Returns problems it couldn't fix.
-function check(blocks, plan, targetMin) {
+function check(blocks, plan, targetMin, matches = [], diag = null) {
   const problems = [];
+  (diag?.fixes || []).forEach(f => { const n = f.drills.filter(d => blocks.some(b => b.drillId === d.id)).length;
+    if (n < 3) problems.push(`The coach's problem is "${f.problem}". Use at least 4 of these as the core: ${f.drills.map(d => d.id + ' ' + d.title).join(', ')}.`); });
+  if (diag?.day === 'light' && blocks.some(b => b.category === 'Conditioning' && blockDuration(b) > 300)) problems.push('This is a light day: remove hard conditioning (keep at most a short finisher or a game).');
+  const has = (id) => blocks.some(b => b.drillId === id || (b.stations || []).some(x => x.drillId === id));
+  matches.forEach(m => { if (!has(m.drill.id)) problems.push(`The coach said "${m.phrase}", so include ${m.drill.id} (${m.drill.title}) as a block.`); });
   const total = () => blocks.reduce((s, b) => s + blockDuration(b), 0) / 60;
   if (!blocks.length) return ['The plan has no blocks.'];
   if (targetMin) {
@@ -206,6 +233,21 @@ function check(blocks, plan, targetMin) {
   return problems;
 }
 
+// Anything the coach named that the AI still left out gets placed in its phase.
+function ensureMatched(blocks, matches) {
+  const has = (id) => blocks.some(b => b.drillId === id || (b.stations || []).some(x => x.drillId === id));
+  const added = [];
+  matches.forEach(m => {
+    if (has(m.drill.id)) return;
+    const nb = drillToBlock(m.drill); nb._section = 'Added';
+    const ph = phaseOf(nb);
+    let at = blocks.findIndex(b => b.type !== 'rest' && phaseOf(b) > ph);
+    if (at < 0) at = blocks.length;
+    blocks.splice(at, 0, nb); added.push(m.drill.title);
+  });
+  return added;
+}
+
 // ---- Keyword fallback (no AI) ----------------------------------------------
 function localPlan(text, drills) {
   const t = text.toLowerCase();
@@ -216,6 +258,7 @@ function localPlan(text, drills) {
   const add = (d, min) => blocks.push({ type: 'drill', drillId: d.id, title: d.title, category: d.category, minutes: d.type === 'series' ? d.durationSec / 60 : (min ?? d.durationSec / 60) });
   const warm = drills.find(d => d.id === 'r001') || drills.find(d => d.id === 'w1'); if (warm && !mentioned.includes(warm)) add(warm, 10);
   mentioned.forEach(d => add(d));
+  diagnose(text, drills).fixes.forEach(f => f.drills.slice(0, 5).forEach(d => { if (!blocks.some(b => b.drillId === d.id)) add(d, 6); }));
   const nLive = (t.match(/(\d+)\s*(live|goes|situation)/) || [])[1];
   if (/live|goes|wrestl/.test(t)) blocks.push({ type: 'goes', title: 'Live Goes', category: 'Live', rounds: nLive ? Math.min(+nLive, 15) : 4, workSec: 120, restSec: 60 });
   const nSt = (t.match(/(\d+)\s*(stations?|groups?)/) || [])[1];
@@ -230,7 +273,9 @@ function localPlan(text, drills) {
 
 // ---- UI --------------------------------------------------------------------
 export async function openDictate(user, onCreate) {
-  const drills = await store.listDrills();
+  const [drills, aliases, examples, practices] = await Promise.all([store.listDrills(), store.listAliases().catch(() => []), store.listExamples().catch(() => []), store.listPractices().catch(() => [])]);
+  const recent = practices.filter(p => !p.canceled && (p.blocks || []).length).slice(0, 4);
+  let matches = [], lastDiag = null;
   const history = [];
   let plan = null, practice = null, busy = false, usedFallback = false, notes = [];
   const R = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -253,11 +298,29 @@ export async function openDictate(user, onCreate) {
         ${usedFallback ? '<span class="badge gold">Built without AI, check it over</span>' : notes.length ? `<span class="badge gold" title="${esc(notes.join(' | '))}">${notes.length} thing(s) to double-check</span>` : '<span class="badge green">✓ Checked</span>'}</div>
       ${!usedFallback && secs.length ? `<div class="card" style="background:#0d1428;margin-bottom:12px"><div class="tiny" style="margin-bottom:8px">How it's built</div>
         ${secs.map(s => `<div class="row" style="gap:10px;padding:4px 0"><b style="min-width:120px">${esc(s.name)}</b><span class="muted small grow">${esc(s.why || '')}</span><span class="small">${Math.round(s.min)}m</span></div>`).join('')}
-        ${(a.requested || []).length ? `<div class="tiny" style="margin:10px 0 6px">You asked for</div>${a.requested.map(r => `<div class="small">✓ ${esc(r.item)} <span class="muted">→ ${esc(r.coveredBy || '')}</span></div>`).join('')}` : ''}
+        ${heardHTML()}
+        ${lastDiag?.fixes?.length ? `<div class="tiny" style="margin:12px 0 6px">The problem I'm fixing</div>${lastDiag.fixes.map(f => `<div class="small"><b>${esc(f.problem)}</b>: ${esc(f.plan)}</div>`).join('')}` : ''}
         ${notes.length ? `<div class="tiny" style="margin:10px 0 6px;color:#fde68a">Double-check</div>${notes.map(n => `<div class="small" style="color:#fde68a">• ${esc(n)}</div>`).join('')}` : ''}</div>` : ''}
       ${readOnlyPractice(practice)}
       <div class="card" style="margin-top:12px;background:#0d1428"><div class="tiny" style="margin-bottom:6px">Want changes? Say it</div>${inputHTML('e.g. "swap cradles for tilts and make the goes 90 seconds"')}</div>`;
   };
+  // "I heard → I used": every phrase matched to a drill, each fixable with one tap.
+  const heardHTML = () => {
+    const rows = matches.map((mt, i) => { const b = practice.blocks.find(x => x.drillId === mt.drill.id);
+      return `<div class="heard"><span class="grow">“${esc(mt.phrase)}” <span class="muted">→</span> <b>${esc(b?.title || mt.drill.title)}</b></span><button class="btn sm" data-act="fixm" data-i="${i}">Change</button></div>`; });
+    const other = (plan.analysis?.requested || []).filter(r => !matches.some(mt => (r.item || '').toLowerCase().includes(mt.phrase.toLowerCase())))
+      .map(r => `<div class="heard"><span class="grow">“${esc(r.item)}” <span class="muted">→</span> ${esc(r.coveredBy || '')}</span></div>`);
+    return rows.length || other.length ? `<div class="tiny" style="margin:12px 0 6px">I heard → I used</div>${rows.join('')}${other.join('')}<div class="small muted" style="margin-top:4px">Tap Change if I picked the wrong drill. I'll remember it for every coach.</div>` : '';
+  };
+  const pickDrill = (title, cb) => {
+    let q = '';
+    const list = () => drills.filter(d => !q || (d.title + ' ' + d.category).toLowerCase().includes(q.toLowerCase())).sort((a, b) => a.title.localeCompare(b.title))
+      .map(d => `<button class="dr" data-act="pk" data-id="${d.id}"><span class="dot" style="background:${catColor(d.category)}"></span><span class="grow"><span class="dr-t">${esc(d.title)}</span><span class="dr-s">${esc(d.category)}</span></span></button>`).join('');
+    const pm = modal({ title, wide: true, body: `<input class="input" id="pq" placeholder="🔍 Search drills…"><div class="drs" id="pl">${list()}</div>`,
+      onAction: (a, el, w, close) => { if (a === 'pk') { close(); cb(drills.find(d => d.id === el.dataset.id)); } } });
+    pm.el.querySelector('#pq').oninput = (e) => { q = e.target.value; pm.el.querySelector('#pl').innerHTML = list(); };
+  };
+
   const footer = (stage) => stage === 'plan'
     ? `<button class="btn" data-act="revise">Update plan</button><button class="btn" data-act="edit">Save & edit</button><button class="btn go lg" data-act="run">Save & run ▶</button>`
     : stage === 'q' ? `<button class="btn primary lg" data-act="answer">Continue</button>` : `<button class="btn primary lg" data-act="build">Build practice</button>`;
@@ -266,6 +329,16 @@ export async function openDictate(user, onCreate) {
     onAction: async (a, el, w, close) => {
       if (a === 'ex') { w.querySelector('#dx').value = el.dataset.x; return; }
       if (a === 'mic') return toggleMic(w);
+      if (a === 'fixm') {
+        const mt = matches[+el.dataset.i];
+        return pickDrill(`What did you mean by “${mt.phrase}”?`, async (d) => {
+          const b = practice.blocks.find(x => x.drillId === mt.drill.id);
+          if (b) { const nb = drillToBlock(d); if (nb.type === 'drill' && b.type === 'drill') nb.durationSec = b.durationSec; nb._section = b._section; practice.blocks[practice.blocks.indexOf(b)] = nb; }
+          aliases.push({ phrase: mt.phrase.toLowerCase(), drillId: d.id }); mt.drill = d;
+          store.saveAlias(mt.phrase, d.id).then(() => toast(`Got it: “${mt.phrase}” means ${d.title}`, 'success')).catch(() => {});
+          w.querySelector('.mb').innerHTML = planHTML();
+        });
+      }
       if (a === 'opt') { w.querySelector(`[data-qa="${el.dataset.q}"]`).value = el.dataset.o; w.querySelectorAll(`[data-act=opt][data-q="${el.dataset.q}"]`).forEach(c => c.classList.toggle('on', c === el)); return; }
       if (busy) return;
       if (a === 'build' || a === 'revise') { const text = (w.querySelector('#dx')?.value || '').trim(); if (!text) return toast('Say or type what you want first', 'error'); await ask(w, text); }
@@ -294,8 +367,12 @@ export async function openDictate(user, onCreate) {
     const status = (s) => { foot.innerHTML = `<span class="muted">${esc(s)}</span>`; };
     try {
       let res; usedFallback = false; notes = [];
-      status('Planning the practice…');
-      try { res = await generate(planPrompt(drills, history, text, plan && plan.status === 'plan' ? { title: plan.title, sections: plan.sections } : null)); }
+      const said = history.filter(h => h.role === 'coach').map(h => h.text).concat(text).join('. ');
+      matches = matchDrills(said, drills, aliases);
+      const diag = diagnose(said, drills); lastDiag = diag;
+      const ctx = { matches, examples: similar(said, examples), recent, diag };
+      status(matches.length ? `Heard ${matches.length} drill${matches.length > 1 ? 's' : ''}. Planning the practice…` : 'Planning the practice…');
+      try { res = await generate(planPrompt(drills, history, text, plan && plan.status === 'plan' ? { title: plan.title, sections: plan.sections } : null, ctx)); }
       catch (e) {
         if (isFirebase && e.message !== 'local') { console.warn(e); toast('AI unavailable (' + String(e.code || e.message).slice(0, 90) + '). Used the keyword builder.', 'error'); }
         res = localPlan(history.filter(h => h.role === 'coach').map(h => h.text).concat(text).join('. '), drills); usedFallback = true;
@@ -307,20 +384,25 @@ export async function openDictate(user, onCreate) {
       }
       const target = Math.round(num(res.analysis?.totalMinutes, 0)) || null;
       let blocks = toBlocks(res, drills);
-      let problems = check(blocks, res, target);
+      let problems = check(blocks, res, target, matches, diag);
       if (problems.length && !usedFallback) {
         status('Checking the plan and fixing a few things…');
         try {
-          const fixed = await generate(fixPrompt(drills, history, res, problems));
-          if (fixed?.status === 'plan') { const b2 = toBlocks(fixed, drills); const p2 = check(b2, fixed, target); if (b2.length && p2.length <= problems.length) { res = fixed; blocks = b2; problems = p2; } }
+          const fixed = await generate(fixPrompt(drills, history, res, problems, { matches, examples: similar(said, examples), recent, diag }));
+          if (fixed?.status === 'plan') { const b2 = toBlocks(fixed, drills); const p2 = check(b2, fixed, target, matches, diag); if (b2.length && p2.length <= problems.length) { res = fixed; blocks = b2; problems = p2; } }
         } catch (e) { console.warn('fix pass failed', e); }
       }
+      // Always open with the team warm-up routine if the plan has no warm-up
+      const team = drills.find(d => d.type === 'series' && d.category === 'Warm-up');
+      if (team && !blocks.some(b => b.category === 'Warm-up')) { const wb = drillToBlock(team); wb._section = 'Warm-up'; blocks.unshift(wb); }
+      const forced = ensureMatched(blocks, matches);
+      if (forced.length) { problems = problems.filter(p => !/^The coach said/.test(p)); if (target) check(blocks, res, target); }
       notes = problems;
       if (!blocks.length) throw new Error('The plan came back empty. Try saying it another way.');
       plan = res;
       history.push({ role: 'planner', text: 'Proposed a plan.' });
       const start = practice?.startTime || '15:30';
-      practice = { ...(practice || {}), title: (res.title || 'Dictated practice').slice(0, 120), notes: res.focus || '', blocks, date: practice?.date || todayStr(),
+      practice = { ...(practice || {}), dictation: said.slice(0, 1500), title: (res.title || 'Dictated practice').slice(0, 120), notes: res.focus || '', blocks, date: practice?.date || todayStr(),
         startTime: start, endTime: addMin(start, Math.round(practiceDuration({ blocks }) / 60)), levels: [], visibility: 'team' };
       body.innerHTML = planHTML(); foot.innerHTML = footer('plan'); body.scrollTop = 0;
     } catch (e) { body.innerHTML = prev; foot.innerHTML = footer(plan ? 'plan' : 'in'); toast(e.message, 'error'); }
@@ -330,4 +412,4 @@ export async function openDictate(user, onCreate) {
 
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const addMin = (hhmm, m) => { const [h, mi] = hhmm.split(':').map(Number); const t = h * 60 + mi + Math.round(m); return `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
-export { localPlan, toBlocks, check, PRINCIPLES };
+export { localPlan, toBlocks, check, ensureMatched, PRINCIPLES };
