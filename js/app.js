@@ -119,6 +119,9 @@ function viewLogin() {
     <div class="row between"><button class="btn ghost sm" id="forgot">Forgot password?</button><button class="btn ghost sm" id="su">Create an account</button></div>
     <div class="small muted">Accounts are limited to <b>@mapsedu.org</b> emails, approved program staff, and people an admin coach has invited.</div>
   </div></div>`;
+  const denied = sessionStorage.getItem('practice-denied');
+  if (denied) { sessionStorage.removeItem('practice-denied');
+    $('#g').insertAdjacentHTML('beforebegin', `<div class="small" style="color:#fde68a;background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.25);border-radius:12px;padding:10px">${esc(denied)} doesn't have access yet. Use a @mapsedu.org email, or ask an admin coach to invite you.</div>`); }
   $('#g').onclick = () => store.signInGoogle().catch(e => toast(authMsg(e), 'error'));
   $('#ef').onsubmit = (e) => { e.preventDefault(); store.signInEmail($('#em').value, $('#pw').value).catch(err => toast(authMsg(err), 'error')); };
   $('#su').onclick = signUpModal;
@@ -149,11 +152,10 @@ function signUpModal() {
 
 function viewPending() {
   if (user.role === 'denied') {
-    app.innerHTML = `<div class="login"><div class="card pad-lg stack"><div class="tiny">${esc(TEAM_NAME)}</div><h1>Not on the list</h1>
-      <p><b>${esc(user.email)}</b> isn't approved for this program. Accounts are limited to @mapsedu.org emails and approved program staff.</p>
-      <p class="small muted">Ask an admin coach to add <b>${esc(user.email)}</b> under Admin → Invite by email, then sign out and back in.</p>
-      <button class="btn danger" id="out">Sign out</button></div></div>`;
-    $('#out').onclick = () => store.signOut(); return;
+    // Not allowed: sign them out and go back to the normal sign-in screen with a short note.
+    const em = user.email;
+    store.signOut().finally(() => { sessionStorage.setItem('practice-denied', em); });
+    user = null; viewLogin(); return;
   }
   if (user.role === 'unverified') {
     app.innerHTML = `<div class="login"><div class="card pad-lg stack"><div class="tiny">${esc(TEAM_NAME)}</div><h1>Confirm your email</h1>
