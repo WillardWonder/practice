@@ -47,11 +47,6 @@ service cloud.firestore {
         : (myEmail() in staffEmails() ? 'coach' : 'pending'));
     }
 
-    function inviteRole() {
-      return exists(/databases/$(database)/documents/invites/$(myEmail()))
-        ? get(/databases/$(database)/documents/invites/$(myEmail())).data.role
-        : 'pending';
-    }
 
     // ---- Users -------------------------------------------------------
     match /users/{uid} {
