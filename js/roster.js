@@ -40,6 +40,10 @@ export async function viewRoster(main, user) {
   main.innerHTML = `<div class="page-head"><div><h1>Roster</h1><div class="muted small" id="rcount"></div></div>
       ${coach ? `<div class="row wrap" style="gap:8px"><a class="btn go" href="#/weighin">✓ Check-in &amp; weigh-in</a><a class="btn" href="#/lineup">📷 Photo caption</a><a class="btn" href="#/sizes">👕 Sizes</a><a class="btn" href="#/paper">📰 Newspaper</a></div>` : ''}</div>
     ${coach ? `<div class="row wrap" style="gap:8px;margin-bottom:12px"><button class="btn primary" id="addA">＋ Add wrestler</button><button class="btn" id="paste">📋 Paste a list</button><button class="btn ghost sm" id="csv">⬇ Export</button></div>` : ''}
+    ${coach ? `<form id="qa" class="card" style="margin-bottom:12px;padding:12px"><div class="tiny" style="margin-bottom:6px">Quick add: type a name, hit Enter, next girl</div>
+      <div class="grid" style="grid-template-columns:1fr 1fr 70px auto;gap:6px">
+        <input class="input" id="qf" placeholder="First" autocapitalize="words" autocomplete="off"><input class="input" id="ql" placeholder="Last" autocapitalize="words" autocomplete="off">
+        <select class="input" id="qg" aria-label="Grade"><option value="">Gr</option>${GRADES.slice(6).map(g => `<option>${g}</option>`).join('')}</select><button class="btn primary">Add</button></div></form>` : ''}
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <input class="input" id="rq" placeholder="🔍 Search names…" value="${esc(rFilter.q)}" style="max-width:320px">
       ${sites.length ? `<select class="input" id="rs" style="width:auto"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${rFilter.site === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
@@ -52,6 +56,18 @@ export async function viewRoster(main, user) {
     $('#addA').onclick = () => editAthlete(null, sites, weights, () => viewRoster(main, user));
     $('#paste').onclick = () => pasteList(sites, user, () => viewRoster(main, user));
     $('#csv').onclick = () => exportCsv(athletes, weights, sites);
+    $('#qa').onsubmit = async (e) => {
+      e.preventDefault();
+      const cap = (x) => x.trim().replace(/\s+/g, ' ').replace(/(^|[\s'-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+      const first = cap($('#qf').value), last = cap($('#ql').value), grade = $('#qg').value;
+      if (!first || !last) return toast('First and last name, please', 'error');
+      if (athletes.some(a => a.first.toLowerCase() === first.toLowerCase() && a.last.toLowerCase() === last.toLowerCase())) return toast(`${first} ${last} is already on the roster`, 'error');
+      const site = rFilter.site && rFilter.site !== 'all' ? rFilter.site : (user.prefs?.site || '');
+      try { const id = await store.put('athletes', null, { first, last, grade, nick: '', level: '', site, active: true }); athletes.push({ id, first, last, grade, site, active: true }); athletes.sort(sortAth); toast(`Added ${first} ${last}`, 'success'); }
+      catch (err) { return toast('Not saved: ' + (err.code || err.message), 'error'); }
+      $('#qf').value = ''; $('#ql').value = ''; $('#qg').value = ''; $('#qf').focus(); draw();
+    };
+    $('#ql').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#qa').requestSubmit(); } };
   }
   draw();
 }
@@ -333,8 +349,9 @@ export async function viewLineup(main, user) {
         <div class="row between"><b>${names[i]}</b><span class="small muted">${r.length} · ${L.cur === i ? 'adding here' : 'tap to add here'}</span></div>
         <div class="lnames">${r.map((x, k) => `<span class="lchip" data-k="${k}"><span class="ln">${k + 1}</span>${esc(x.name)}<button data-act="rm" aria-label="Remove">✕</button></span>`).join('') || '<span class="small muted">Tap names below, left to right.</span>'}</div></div>`).join('');
     const q = ($('#lq')?.value || '').toLowerCase();
-    $('#lpool').innerHTML = pool().filter(a => !pl.has(a.id) && (!q || full(a).toLowerCase().includes(q))).map(a => `<button class="chip" data-add="${a.id}">${esc(full(a))}</button>`).join('') || '<span class="small muted">Everyone is placed.</span>';
+    $('#lpool').innerHTML = pool().filter(a => !pl.has(a.id) && (!q || full(a).toLowerCase().includes(q))).map(a => `<button class="chip" data-add="${a.id}">${esc(full(a))}</button>`).join('') || `<span class="small muted">${athletes.length ? 'Everyone on the roster is placed.' : 'No one on the roster yet. Add girls below as they give you their names.'}</span>`;
     $('#cap').textContent = caption();
+    const cn = $('#lcurname'); if (cn) cn.textContent = names[L.cur];
     try { localStorage.setItem('practice-lineup', JSON.stringify(L)); } catch (e) {}
     $$('.lnames').forEach((el, i) => { if (window.Sortable) Sortable.create(el, { animation: 150, draggable: '.lchip', onEnd: (e) => { const r = L.rows[i]; const [m] = r.splice(e.oldIndex, 1); r.splice(e.newIndex, 0, m); draw(); } }); });
   };
@@ -350,8 +367,17 @@ export async function viewLineup(main, user) {
       <label class="field"><span class="tiny">Photo by (the paper credits this)</span><input class="input" id="lph" value="${esc(L.photographer || '')}" placeholder="Photographer's name"></label></div>
     <div class="small muted" style="margin-bottom:8px">Tap a row, then tap names in order from <b>left to right</b> as you look at the photo. Drag a name to fix the order; ✕ removes it.</div>
     <div id="rows" class="stack"></div>
-    <div class="card" style="margin-top:12px"><div class="row wrap between" style="gap:8px"><b>Add to the selected row</b>
-      <form id="lx" class="row" style="gap:6px"><input class="input" id="lxn" placeholder="Not on roster? Type a name (e.g. a coach)" style="min-width:240px"><button class="btn sm">Add</button></form></div>
+    <div class="card" style="margin-top:12px"><div class="row wrap between" style="gap:8px"><b>Add to <span id="lcurname"></span></b>
+</div>
+      <form id="lx" class="stack" style="margin-top:10px;gap:8px">
+        <div class="tiny">Add someone new to the selected row</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr 70px;gap:6px">
+          <input class="input" id="lxf" placeholder="First name" autocapitalize="words" autocomplete="off">
+          <input class="input" id="lxl" placeholder="Last name" autocapitalize="words" autocomplete="off">
+          <select class="input" id="lxg" aria-label="Grade"><option value="">Gr</option>${GRADES.slice(6).map(g => `<option>${g}</option>`).join('')}</select></div>
+        <div class="row" style="gap:6px"><button class="btn primary grow" id="lxw" type="submit">＋ Add wrestler (saves to roster)</button><button class="btn" id="lxc" type="button">＋ Coach / other</button></div>
+        <div class="small muted">Ask her to spell it. Enter adds her and puts you back on First name for the next girl.</div>
+      </form>
       <input class="input" id="lq" placeholder="🔍 Find a name…" style="margin:10px 0">
       <div class="row wrap" style="gap:6px" id="lpool"></div></div>
     <div class="card" style="margin-top:12px;border-color:rgba(250,204,21,.4)"><div class="row between"><b>Caption for the paper</b><button class="btn gold" id="lcp">Copy caption</button></div>
@@ -365,7 +391,23 @@ export async function viewLineup(main, user) {
   L.team ??= 'Merrill High School Girls Wrestling';
   $('#lteam').oninput = (e) => { L.team = e.target.value.trim(); draw(); };
   $('#lph').oninput = (e) => { L.photographer = e.target.value.trim(); draw(); };
-  $('#lx').onsubmit = (e) => { e.preventDefault(); const n = $('#lxn').value.trim(); if (!n) return; L.rows[L.cur].push({ id: null, name: n }); $('#lxn').value = ''; draw(); };
+  const cap = (x) => x.trim().replace(/\s+/g, ' ').replace(/(^|[\s'-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+  const readNew = () => ({ first: cap($('#lxf').value), last: cap($('#lxl').value), grade: $('#lxg').value });
+  const clearNew = () => { $('#lxf').value = ''; $('#lxl').value = ''; $('#lxg').value = ''; $('#lxf').focus(); };
+  $('#lx').onsubmit = async (e) => {
+    e.preventDefault(); const n = readNew();
+    if (!n.first || !n.last) return toast('First and last name, please', 'error');
+    const dup = athletes.find(a => a.first.toLowerCase() === n.first.toLowerCase() && a.last.toLowerCase() === n.last.toLowerCase());
+    let id = dup?.id;
+    if (!dup) {
+      const site = L.site !== 'all' ? L.site : (user.prefs?.site || '');
+      try { id = await store.put('athletes', null, { ...n, nick: '', level: '', site, active: true }); athletes.push({ id, ...n, site, active: true }); athletes.sort(sortAth); }
+      catch (err) { return toast('Not saved to roster: ' + (err.code || err.message), 'error'); }
+    }
+    if (!placed().has(id)) L.rows[L.cur].push({ id, name: `${n.first} ${n.last}` });
+    toast(dup ? `${n.first} was already on the roster` : `Added ${n.first} ${n.last}`, 'success'); clearNew(); draw();
+  };
+  $('#lxc').onclick = () => { const n = readNew(); const name = `${n.first} ${n.last}`.trim(); if (!name) return toast('Type a name first', 'error'); L.rows[L.cur].push({ id: null, name }); clearNew(); draw(); };
   $('#lcp').onclick = async () => { try { await navigator.clipboard.writeText(caption()); toast('Caption copied', 'success'); } catch (e) { prompt('Copy the caption:', caption()); } };
   main.onclick = (e) => {
     const add = e.target.closest('[data-add]');
