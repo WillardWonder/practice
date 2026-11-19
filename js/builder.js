@@ -2,7 +2,7 @@
 // The screen is just: name, total time, the list of blocks, and two big
 // buttons: ＋ Add and ▶ Run. Everything else lives in sheets that slide up.
 import { esc, $, $$, toast, modal, confirmBox, download } from './ui.js';
-import { CATEGORIES, LEVELS, catColor, makeRotation, makeGoes, makeRest, drillToBlock, newId } from './seed.js';
+import { CATEGORIES, LEVELS, catColor, makeRotation, makeGoes, makeRest, makePersonal, drillToBlock, newId } from './seed.js';
 import { blockDuration, practiceDuration, fmtDur, parseDur, clockTimeLabel, minutesBetween, GROUP } from './engine.js';
 import { store, canEditPractice } from './store.js';
 import { blockDetail, printPractice } from './print.js';
@@ -96,13 +96,13 @@ function drawDetails() {
 }
 
 function rowHTML(b, start) {
-  const fixed = b.type === 'drill' || b.type === 'rest';
+  const fixed = b.type === 'drill' || b.type === 'rest' || b.type === 'personal';
   const sub = b.type === 'drill' ? [b.description, b.holdAtEnd ? 'coach-paced' : '', b.switchAtHalf ? 'switch at half' : ''].filter(Boolean).join(' · ') || b.category : blockDetail(b);
   return `<div class="rb" data-bid="${b.id}">
     <div class="stripe" style="background:${catColor(b.category)}"></div>
     <div class="rb-main" data-act="edit">
       <div class="rb-when">${P.startTime ? clockTimeLabel(P.startTime, start) : '+' + fmtDur(start)}</div>
-      <div class="rb-t">${esc(b.type === 'rotation' ? (b.title || 'Stations') : b.title)}</div>
+      <div class="rb-t">${b.type === 'personal' ? '👤 ' : ''}${esc(b.type === 'rotation' ? (b.title || 'Stations') : b.title)}</div>
       <div class="rb-s">${esc(sub)}</div>
     </div>
     <div class="rb-time">${fixed ? `<button data-act="dur-" aria-label="Less time">−</button><span>${clock(b.durationSec)}</span><button data-act="dur+" aria-label="More time">+</button>` : `<span data-act="edit">${clock(blockDuration(b))}</span>`}</div>
@@ -166,6 +166,7 @@ export function openAdd({ single = false, onPick = null, title = null } = {}) {
         <button class="qa" data-act="q-goes"><b>🤼</b>Live goes</button>
         <button class="qa" data-act="q-rot"><b>🔄</b>Stations</button>
         <button class="qa" data-act="q-split"><b>✂</b>Group split</button>
+        <button class="qa" data-act="q-personal"><b>👤</b>Personal stations</button>
         <button class="qa" data-act="q-custom"><b>✎</b>New drill</button>
       </div>`}
       <div class="cats">${ADD_CATS.map(c => { const n = drills.filter(d => d.category === c.id).length; return n ? `<button class="cat" data-act="cat" data-cat="${c.id}" style="border-left-color:${c.color}"><b>${c.id}</b><span>${n}</span></button>` : ''; }).join('')}</div>`;
@@ -187,9 +188,9 @@ export function openAdd({ single = false, onPick = null, title = null } = {}) {
         el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 300);
         w.querySelector('.mf').innerHTML = foot(); changed(); return;
       }
-      const quick = { 'q-water': () => ({ ...makeRest(60), title: 'Water' }), 'q-rest': () => makeRest(120), 'q-goes': makeGoes, 'q-rot': () => makeRotation(4, 'rotate'), 'q-split': () => makeRotation(4, 'split') }[act];
+      const quick = { 'q-water': () => ({ ...makeRest(60), title: 'Water' }), 'q-rest': () => makeRest(120), 'q-goes': makeGoes, 'q-rot': () => makeRotation(4, 'rotate'), 'q-split': () => makeRotation(4, 'split'), 'q-personal': makePersonal }[act];
       if (quick) { const blk = quick(); P.blocks.push(blk); added++; changed(); toast(`Added ${blk.title}`, 'success');
-        if (act === 'q-goes' || act === 'q-rot' || act === 'q-split') { close(); setTimeout(() => openEdit(blk), 50); } else w.querySelector('.mf').innerHTML = foot(); return; }
+        if (act === 'q-goes' || act === 'q-rot' || act === 'q-split' || act === 'q-personal') { close(); setTimeout(() => openEdit(blk), 50); } else w.querySelector('.mf').innerHTML = foot(); return; }
       if (act === 'q-custom') { close(); customDrill(); }
     } });
   const bindSearch = () => { const i = m.el.querySelector('#aq'); if (!i) return; i.oninput = () => { q = i.value; const pos = i.selectionStart; m.el.querySelector('.mb').innerHTML = body(); bindSearch(); const ni = m.el.querySelector('#aq'); ni.focus(); ni.setSelectionRange(pos, pos); }; };
@@ -217,6 +218,20 @@ function editBody(b) {
       <label class="field"><span class="tiny">Coaching cues (one per line)</span><textarea class="input" data-f="cues" rows="2">${esc((b.cues || []).join('\n'))}</textarea></label>
       <label class="field"><span class="tiny">Technique video link</span><input class="input" data-f="videoUrl" value="${esc(b.videoUrl || '')}"></label>
       <button class="btn" data-act="tolib">☆ Save this to the drill library</button></div></details></div>`;
+  if (b.type === 'personal') {
+    const assigned = new Set(b.stations.flatMap(st => (st.athletes || []).map(a => a.id)));
+    const left = rosterCache ? rosterCache.filter(a => a.active !== false && !assigned.has(a.id)).length : null;
+    return `<div class="stack">
+    <div class="small muted">Everyone works at the same time, each wrestler at her own station. The room screen shows every station with the names under it.</div>
+    <div><div class="tiny">How long</div>${stepper('durationSec', b.durationSec)}</div>
+    ${b.stations.map((st, si) => `<div class="pst" data-si="${si}">
+      <div class="row" style="gap:6px"><button class="btn grow st-pick" data-act="pst-pick" style="justify-content:flex-start">${esc(st.title)}</button>${b.stations.length > 1 ? '<button class="btn ghost icon" data-act="pst-del" aria-label="Remove station">✕</button>' : ''}</div>
+      <input class="input" data-pf2="description" value="${esc(st.description || '')}" placeholder="What she works on here (optional)" style="margin-top:6px">
+      <div class="row wrap" style="gap:6px;margin-top:8px">${(st.athletes || []).map(a => `<span class="chip on">${esc(a.name)}</span>`).join('')}<button class="btn sm" data-act="pst-assign">👤 Assign wrestlers${(st.athletes || []).length ? ` (${st.athletes.length})` : ''}</button></div></div>`).join('')}
+    <button class="btn" data-act="pst-add">＋ Add a station</button>
+    ${left !== null ? `<div class="small ${left ? '' : 'muted'}" style="${left ? 'color:#fde68a' : ''}">${left ? `${left} active wrestler${left === 1 ? '' : 's'} not assigned yet` : 'Everyone on the roster is assigned'}</div>` : ''}
+    <label class="field"><span class="tiny">Name</span><input class="input" data-f="title" value="${esc(b.title)}"></label></div>`;
+  }
   if (b.type === 'series') return `<div class="stack">
     <div class="small muted">Each motion is timed and called out on its own. Total ${clock(blockDuration(b))}.</div>
     <div class="row wrap" style="gap:6px"><span class="tiny">Set every motion to</span>${[20, 30, 45, 60].map(x => `<button class="chip" data-act="mv-all" data-s="${x}">${fmtDur(x)}</button>`).join('')}</div>
@@ -253,7 +268,8 @@ function editBody(b) {
 function openEdit(b) {
   if (!b) return;
   const idx = () => P.blocks.indexOf(b);
-  const m = modal({ title: b.type === 'series' ? b.title : b.type === 'rotation' ? 'Stations' : b.type === 'goes' ? 'Live goes' : b.type === 'rest' ? 'Rest' : b.title, body: editBody(b),
+  if (b.type === 'personal' && !rosterCache) store.list('athletes').then(r => { rosterCache = r.sort((x, y) => (x.last || '').localeCompare(y.last || '')); const mb = document.querySelector('.overlay:last-child .mb'); if (mb && document.querySelector('[data-act=pst-add]')) mb.innerHTML = editBody(b); }).catch(() => { rosterCache = []; });
+  const m = modal({ title: b.type === 'personal' ? 'Personal stations' : b.type === 'series' ? b.title : b.type === 'rotation' ? 'Stations' : b.type === 'goes' ? 'Live goes' : b.type === 'rest' ? 'Rest' : b.title, body: editBody(b),
     footer: `<button class="btn danger" data-act="del">Remove</button><button class="btn" data-act="dup">Copy</button><button class="btn" data-act="up">↑</button><button class="btn" data-act="down">↓</button><span class="grow"></span><button class="btn primary lg" data-act="close">Done</button>`,
     onAction: async (act, el, w, close) => {
       const redraw = () => { w.querySelector('.mb').innerHTML = editBody(b); };
@@ -266,6 +282,11 @@ function openEdit(b) {
       if (act === 'st-del') { b.stations.splice(+el.closest('[data-si]').dataset.si, 1); changed(); return redraw(); }
       if (act === 'st-pick') { const si = +el.closest('[data-si]').dataset.si; close();
         return openAdd({ single: true, title: `Group ${GROUP(si)} station`, onPick: (d) => { b.stations[si] = { title: d.title, description: d.description || '', category: d.category, drillId: d.id }; changed(); openEdit(b); } }); }
+      const psi = el.closest('.pst') ? +el.closest('.pst').dataset.si : -1;
+      if (act === 'pst-add') { b.stations.push({ title: `Station ${b.stations.length + 1}`, description: '', category: 'Station', athletes: [] }); changed(); return redraw(); }
+      if (act === 'pst-del') { b.stations.splice(psi, 1); changed(); return redraw(); }
+      if (act === 'pst-pick') { close(); return openAdd({ single: true, title: `Station ${psi + 1}`, onPick: (d) => { const st = b.stations[psi]; Object.assign(st, { title: d.title, description: st.description || d.description || '', category: d.category, drillId: d.id }); changed(); openEdit(b); } }); }
+      if (act === 'pst-assign') { close(); return assignWrestlers(b, psi, () => openEdit(b)); }
       const mi = el.closest('[data-mi]') ? +el.closest('[data-mi]').dataset.mi : -1;
       if (act === 'mv-' || act === 'mv+') { const mv = b.moves[mi]; mv.sec = Math.max(5, mv.sec + (act === 'mv+' ? (mv.sec < 60 ? 5 : 15) : -(mv.sec <= 60 ? 5 : 15))); changed(); return redraw(); }
       if (act === 'mv-all') { b.moves.forEach(mv => { mv.sec = +el.dataset.s; }); changed(); return redraw(); }
@@ -289,6 +310,7 @@ function openEdit(b) {
   const mb = m.el.querySelector('.mb');
   mb.addEventListener('input', (e) => {
     const t = e.target;
+    if (t.dataset.pf2) { b.stations[+t.closest('.pst').dataset.si][t.dataset.pf2] = t.value; return changed(); }
     if (t.dataset.mf) { b.moves[+t.closest('[data-mi]').dataset.mi][t.dataset.mf] = t.value; return changed(); }
     if (t.dataset.f) { b[t.dataset.f] = t.dataset.f === 'cues' ? t.value.split('\n').map(s => s.trim()).filter(Boolean) : t.value; changed(); }
   });
@@ -297,6 +319,31 @@ function openEdit(b) {
     if (t.dataset.durfield) { const f = t.dataset.durfield, min = +t.closest('.bigstep').dataset.min; b[f] = Math.max(min, parseDur(t.value, b[f])); t.value = clock(b[f]); changed(); }
     if (t.dataset.numfield) { b.rounds = Math.max(1, Math.min(30, parseInt(t.value) || b.rounds)); t.value = b.rounds; changed(); }
   });
+}
+
+// Pick which wrestlers go to a personal station (from the roster).
+let rosterCache = null;
+async function assignWrestlers(b, si, done) {
+  if (!rosterCache) { try { rosterCache = (await store.list('athletes')).sort((x, y) => (x.last || '').localeCompare(y.last || '')); } catch (e) { rosterCache = []; } }
+  const st = b.stations[si];
+  const elsewhere = {}; b.stations.forEach((o, i) => { if (i !== si) (o.athletes || []).forEach(a => { elsewhere[a.id] = o.title; }); });
+  const sel = new Set((st.athletes || []).map(a => a.id));
+  let q = '';
+  const list = () => rosterCache.filter(a => a.active !== false && (!q || `${a.first} ${a.last}`.toLowerCase().includes(q.toLowerCase()))).map(a => `<button class="dr ${sel.has(a.id) ? 'sel' : ''}" data-act="tg" data-id="${a.id}">
+      <span class="grow"><span class="dr-t" style="text-transform:none">${esc(a.first)} ${esc(a.last)}</span><span class="dr-s">${elsewhere[a.id] ? 'At: ' + esc(elsewhere[a.id]) : 'Not assigned'}</span></span><span class="dr-plus" style="${sel.has(a.id) ? '' : 'background:#334155'}">${sel.has(a.id) ? '✓' : '＋'}</span></button>`).join('')
+    || `<div class="empty">No wrestlers on the roster yet. Add them under <a href="#/roster">Roster</a>.</div>`;
+  const m = modal({ title: `Who's at ${st.title}?`, wide: true, body: `<input class="input" id="wq" placeholder="🔍 Find a name…"><div class="drs" id="wl2">${list()}</div>`,
+    footer: `<button class="btn primary xl" data-act="ok" style="width:100%">Done</button>`,
+    onAction: (a, el, w, close) => {
+      if (a === 'tg') { const id = el.dataset.id; sel.has(id) ? sel.delete(id) : sel.add(id); w.querySelector('#wl2').innerHTML = list(); return; }
+      if (a === 'ok') {
+        // a wrestler can only be at one station: move her if she was somewhere else
+        b.stations.forEach((o, i) => { if (i !== si) o.athletes = (o.athletes || []).filter(x => !sel.has(x.id)); });
+        st.athletes = rosterCache.filter(x => sel.has(x.id)).map(x => ({ id: x.id, name: `${x.first} ${x.last}` }));
+        changed(); close(); done();
+      }
+    } });
+  m.el.querySelector('#wq').oninput = (e) => { q = e.target.value; m.el.querySelector('#wl2').innerHTML = list(); };
 }
 
 // ---- Smaller sheets ------------------------------------------------------

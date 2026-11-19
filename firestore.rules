@@ -150,6 +150,21 @@ service cloud.firestore {
       allow write: if isCoach() && (request.resource == null || request.resource.data.transcript is string);
     }
 
+    // ---- Roster, weigh-ins, photo lineups ----
+    // Wrestlers are minors: names are visible to staff; weights only to coaches.
+    match /athletes/{id} {
+      allow read: if isStaff();
+      allow write: if isCoach() && (request.resource == null || (request.resource.data.first is string && request.resource.data.last is string));
+    }
+    match /weighins/{id} {
+      allow read: if isCoach();
+      allow write: if isCoach() && (request.resource == null || (request.resource.data.weight is number && request.resource.data.weight > 0 && request.resource.data.weight < 500));
+    }
+    match /lineups/{id} {
+      allow read: if isStaff();
+      allow write: if isCoach();
+    }
+
     // ---- Shared coach-voice clips (generated once, reused by everyone) ----
     match /voice/{id} {
       allow read: if isMember();

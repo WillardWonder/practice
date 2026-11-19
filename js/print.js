@@ -11,7 +11,11 @@ function rotationTable(b) {
   return h + '</table>';
 }
 
+function personalTable(b) {
+  return `<table class="pp-grid"><tr><th>Station</th><th>Wrestlers</th></tr>${(b.stations || []).map(st => `<tr><td><b>${esc(st.title)}</b>${st.description ? '<br>' + esc(st.description) : ''}</td><td>${(st.athletes || []).map(a => esc(a.name)).join(', ') || '—'}</td></tr>`).join('')}</table>`;
+}
 export function blockDetail(b) {
+  if (b.type === 'personal') { const who = (b.stations || []).reduce((n, st) => n + (st.athletes || []).length, 0); return `${(b.stations || []).length} stations · ${who} wrestlers assigned`; }
   if (b.type === 'series') return `${(b.moves || []).length} motions: ${(b.moves || []).map(m => m.title).join(', ')}`;
   if (b.type === 'goes') return `${b.rounds} × ${fmtDur(b.workSec)} goes, ${fmtDur(b.restSec)} rest${b.switchAtHalf ? ' · switch at half' : ''}`;
   if (b.type === 'rotation') return `${b.stations.length} groups · ${fmtDur(b.stationSec)} per station${b.mode === 'split' ? ' · groups stay put' : ` · ${fmtDur(b.transitionSec || 0)} to rotate`}`;
@@ -30,6 +34,7 @@ export function printPractice(p, { wall = false } = {}) {
         <div class="ds">${esc(b.category || '')}${b.type !== 'drill' || b.description ? ' — ' + esc(blockDetail(b)) : ''}</div>
         ${b.cues?.length ? `<div class="ds"><b>Cues:</b> ${b.cues.map(esc).join(' · ')}</div>` : ''}
         ${b.type === 'rotation' && !wall ? rotationTable(b) : ''}
+        ${b.type === 'personal' ? personalTable(b) : ''}
         ${b.type === 'rotation' && wall ? `<div class="ds">${b.stations.map((s, g) => `<b>${GROUP(g)}:</b> ${esc(s.title)}`).join(' &nbsp; ')}</div>` : ''}
       </div>
       <div class="du">${fmtDur(blockDuration(b))}</div></div>`;
@@ -70,6 +75,7 @@ export function readOnlyPractice(p) {
         ${b.cues?.length ? `<div class="row wrap" style="margin:8px 0 0 72px">${b.cues.map(c => `<span class="badge blue">${esc(c)}</span>`).join('')}</div>` : ''}
         ${b.videoUrl ? `<div style="margin:6px 0 0 72px"><a href="${esc(b.videoUrl)}" target="_blank" rel="noopener" class="small">▶ Technique video</a></div>` : ''}
         ${b.type === 'rotation' ? `<div class="rot-grid" style="margin:10px 0 0 72px">${rotationTable(b).replace('pp-grid', '')}</div>` : ''}
+        ${b.type === 'personal' ? `<div class="rot-grid" style="margin:10px 0 0 72px">${personalTable(b).replace('pp-grid', '')}</div>` : ''}
       </div></div>`; }).join('')}
   </div>`;
 }

@@ -88,6 +88,9 @@ const local = {
     window.addEventListener('storage', h); window.addEventListener('local-run', h); emit();
     return () => { window.removeEventListener('storage', h); window.removeEventListener('local-run', h); };
   },
+  async list(col, ...where) { return Object.values((localDb()[col]) || {}).filter(d => where.every(([f, op, v]) => op === '==' ? d[f] === v : op === '>=' ? d[f] >= v : op === '<=' ? d[f] <= v : true)); },
+  async put(col, id, data) { const db = localDb(); db[col] ||= {}; id ||= newId(); db[col][id] = { ...data, id, updatedAt: now() }; saveLocal(db); return id; },
+  async del(col, id) { const db = localDb(); delete (db[col] || {})[id]; saveLocal(db); },
   async listAliases() { return Object.values(localDb().aliases || {}); },
   async saveAlias(phrase, drillId) { const db = localDb(); db.aliases ||= {}; const k = phrase.toLowerCase().trim(); db.aliases[k] = { phrase: k, drillId, at: now() }; saveLocal(db); },
   async listExamples() { return Object.values(localDb().examples || {}).sort((a, b) => b.at - a.at).slice(0, 60); },
@@ -254,6 +257,9 @@ const fb = {
     const q = m.query(m.collection(this.db, 'runs'), m.where('status', '==', 'live'));
     return m.onSnapshot(q, s => cb(this._list(s).filter(r => now() - (r.heartbeat || 0) < 3 * 3600e3)), () => cb([]));
   },
+  async list(col, ...where) { const m = this.m; let q = m.collection(this.db, col); if (where.length) q = m.query(q, ...where.map(([f, op, v]) => m.where(f, op, v))); return this._list(await m.getDocs(q)); },
+  async put(col, id, data) { const m = this.m; id ||= newId(); await m.setDoc(m.doc(this.db, col, id), { ...data, updatedAt: now(), by: this.user.uid }); return id; },
+  async del(col, id) { await this.m.deleteDoc(this.m.doc(this.db, col, id)); },
   async listAliases() { return this._list(await this.m.getDocs(this.m.collection(this.db, 'aliases'))); },
   async saveAlias(phrase, drillId) { const k = phrase.toLowerCase().trim().replace(/[\/#?]/g, ' ').slice(0, 100); if (!k) return;
     await this.m.setDoc(this.m.doc(this.db, 'aliases', k), { phrase: k, drillId, by: this.user.uid, at: now() }); },

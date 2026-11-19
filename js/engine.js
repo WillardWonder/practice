@@ -23,6 +23,10 @@ export function compile(practice) {
     if (b.type === 'drill') {
       segs.push({ ...base, kind: 'work', title: b.title, durationSec: b.durationSec, switchAtHalf: !!b.switchAtHalf,
         holdAtEnd: !!b.holdAtEnd, say: PHRASES.start(b.title) });
+    } else if (b.type === 'personal') {
+      const who = (b.stations || []).reduce((n, st) => n + (st.athletes || []).length, 0);
+      segs.push({ ...base, kind: 'work', title: b.title || 'Personal Stations', sub: `${(b.stations || []).length} stations · ${who} wrestlers`,
+        durationSec: b.durationSec, personal: b.stations || [], say: `${b.title || 'Personal stations'}. Go to your station.` });
     } else if (b.type === 'series') {
       const n = (b.moves || []).length;
       b.moves.forEach((m, k) => segs.push({ ...base, kind: 'work', title: m.title, description: m.description || '', cues: [],

@@ -92,13 +92,14 @@ function shellHTML() {
         <button class="cb" data-act="next" title="Next (→)" aria-label="Next">⏭</button>
       </div>
       <div class="right">
-        <button class="btn sm" data-act="blocks" title="Jump to a block">☰</button>
+        <button class="btn sm" data-act="flow" title="See the whole practice">📋 Flow</button>
         <button class="btn sm lock" data-act="lock" id="l-lock" title="Lock controls (L)">🔓</button>
         <button class="btn sm" data-act="settings" title="Sound & voice">⚙</button>
         <button class="btn sm danger" data-act="end">End</button>
       </div>`}
     </div>
     <div id="l-takeover"></div>
+    <aside class="flow hidden" id="l-flow"></aside>
   </div>`;
 }
 
@@ -192,6 +193,7 @@ function onRun(run, meta = {}) {
   if (run.status !== 'live') { S.clock.done = true; S.clock.running = false; S.clock.segIndex = S.segs.length; }
   paintBadge();
   paintTakeover();
+  S.flowDirty = true;
   if (first && S.mode === 'remote' && run.status === 'live' && !audio.isUnlocked()) {
     const d = document.createElement('div'); d.className = 'prestart'; d.id = 'l-pre';
     d.innerHTML = `<div class="tiny">Practice is running</div><h1 style="font-size:clamp(26px,5vw,48px);font-weight:900;font-style:italic;text-transform:uppercase">${esc(run.practiceTitle)}</h1>
@@ -289,6 +291,7 @@ function loop() {
     else if (!firstPaint || (NOW() - (S.run.heartbeat || 0) < 3000)) announce(S.clock.segIndex);
   }
   paintTick();
+  if ((S.flowTick = (S.flowTick || 0) + 1) % 5 === 0 || S.flowDirty) { S.flowDirty = false; paintFlow(); }
   cues();
   // last scheduled segment ended locally: make sure the run is closed (idempotent)
   if (S.clock.done && S.run.status === 'live' && can(S.user, 'run') && !S.finishing) finishRun(false);
@@ -378,7 +381,15 @@ function paintStage() {
   paintNext(); paintProgress();
   if (!seg) { stage.innerHTML = `<div style="font-size:clamp(70px,16vw,200px);font-weight:900;font-style:italic;color:var(--gold);line-height:1">FINISH</div><div class="sub">Practice Complete</div>`; return; }
   const [kl, kc] = kindLabel(seg);
-  if (seg.assignments) {
+  if (seg.personal) {
+    const n = seg.personal.length, cols = n <= 2 ? n : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+    stage.innerHTML = `<div class="kind" style="color:#eab308">Personal stations</div>
+      <div class="sub" style="margin-bottom:6px">${esc(seg.title)}</div>
+      <div class="groups" style="grid-template-columns:repeat(${cols},1fr)">${seg.personal.map(st => `<div class="grp" style="border-color:${catColor(st.category)}99">
+        <div class="gs">${esc(st.title)}</div>${st.description ? `<div class="gd">${esc(st.description)}</div>` : ''}
+        <div class="pnames">${(st.athletes || []).map(a => `<span>${esc(a.name)}</span>`).join('') || '<span class="muted">—</span>'}</div></div>`).join('')}</div>
+      <div class="timer small" id="l-timer">0:00</div>`;
+  } else if (seg.assignments) {
     const n = seg.assignments.length, cols = n <= 2 ? n : n <= 4 ? 2 : 3;
     stage.innerHTML = `<div class="kind" style="color:${kc}">${esc(kl)}</div>
       <div class="sub" style="margin-bottom:6px">${esc(seg.title)}</div>
@@ -429,6 +440,39 @@ function paintTick() {
     cur.style.background = `linear-gradient(90deg, ${catColor(seg.category)} ${frac * 100}%, #1e293b ${frac * 100}%)`; }
 }
 
+// ---- Flow panel: the whole practice at a glance ----------------------------
+function flowHTML() {
+  if (!S.segs.length) return '';
+  const now = NOW(), cur = S.clock.segIndex;
+  const startOf = {}; // block index -> {first seg, est start ms}
+  let t = now + Math.max(0, remainingMs(S.segs, S.clock));
+  S.segs.forEach((sg, i) => {
+    if (sg.kind === 'leadin') return;
+    const bi = sg.blockIndex;
+    if (!(bi in startOf)) startOf[bi] = { seg: i, at: i < cur ? null : i === cur ? null : t };
+    if (i > cur) t += segDur(S.segs, S.clock, i) * 1000;
+  });
+  const curBlock = S.segs[cur]?.blockIndex;
+  const blocks = S.practice.blocks || [];
+  const tm = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `<div class="row between" style="margin-bottom:8px"><b>Today's flow</b>
+      <span class="row" style="gap:6px">${S.mode !== 'room' && isController() ? `<button class="btn sm ${S.run?.showFlow ? 'gold' : ''}" data-act="flow-tv">📺 ${S.run?.showFlow ? 'On TV' : 'Show on TV'}</button>` : ''}${S.mode !== 'room' ? '<button class="btn sm ghost" data-act="flow">✕</button>' : ''}</span></div>
+    ${blocks.map((b, bi) => { const st = startOf[bi]; const done = curBlock !== undefined && bi < curBlock || S.clock.done; const now_ = bi === curBlock && !S.clock.done;
+      const who = b.type === 'personal' ? (b.stations || []).map(x => `<div class="fw"><b>${esc(x.title)}:</b> ${(x.athletes || []).map(a => esc(a.name)).join(', ') || '—'}</div>`).join('')
+        : b.type === 'rotation' ? `<div class="fw">${b.stations.map((x, g) => `${String.fromCharCode(65 + g)}: ${esc(x.title)}`).join(' · ')}</div>` : '';
+      return `<div class="fl ${done ? 'done' : ''} ${now_ ? 'fnow' : ''}" ${st && S.mode !== 'room' && isController() ? `data-act="flow-jump" data-seg="${st.seg}"` : ''}>
+        <span class="fd" style="background:${catColor(b.category)}"></span>
+        <span class="grow" style="min-width:0"><span class="ft">${esc(b.type === 'rotation' ? (b.title || 'Stations') : b.title)}</span>${who}</span>
+        <span class="fm">${done ? '✓' : now_ ? (remainingMs(S.segs, S.clock) < 0 ? '+' : '') + fmt(Math.abs(remainingMs(S.segs, S.clock) / 1000)) + ' left' : st?.at ? tm(st.at) : ''}<br><span class="muted">${fmtDur(blockDuration(b))}</span></span></div>`; }).join('')}`;
+}
+function paintFlow() {
+  const f = $('#l-flow'); if (!f) return;
+  const show = S.mode === 'room' ? !!S.run?.showFlow && S.run.status === 'live' : !!S.flowOpen;
+  f.classList.toggle('hidden', !show);
+  $('#live')?.classList.toggle('with-flow', show);
+  if (show) f.innerHTML = flowHTML();
+}
+
 // ---- Commands --------------------------------------------------------
 async function command(cmd, arg) {
   if (!S?.run || S.run.status !== 'live' || !isController()) return;
@@ -459,6 +503,9 @@ function act(a, el) {
   if (a === 'room-pick') { localStorage.setItem(ROOM_KEY, el.dataset.id); const u = S.user, host = S.el; teardownLive(); renderLive(host, u, { mode: 'room' }); return; }
   if (a === 'room-change') { localStorage.removeItem(ROOM_KEY); S.unwatchLive && S.unwatchLive(); S.unwatchLive = null; S.unwatch && S.unwatch(); S.run = null; S.segs = []; pickRoom(S.sites || []); return; }
   if (a === 'blocks') return blocksMenu();
+  if (a === 'flow') { S.flowOpen = !S.flowOpen; S.flowDirty = true; paintFlow(); return; }
+  if (a === 'flow-tv') { if (!isController()) return; const v = !S.run?.showFlow; store.runCommand(S.runId, () => ({ showFlow: v })).then(() => toast(v ? 'Flow is showing on the room TV' : 'Flow hidden on the TV')).catch(e => toast(e.code || e.message, 'error')); return; }
+  if (a === 'flow-jump') { const i = +el.dataset.seg; confirmBox('Jump here?', `Skip to "${S.segs[i]?.title}"?`, 'Jump', false).then(ok => ok && command('jump', i)); return; }
   if (S.mode === 'room') return;
   if (a === 'lock') { S.locked = !S.locked; $('#live').classList.toggle('locked', S.locked); $('#l-lock').textContent = S.locked ? '🔒' : '🔓'; toast(S.locked ? 'Controls locked. Tap 🔒 to unlock.' : 'Unlocked'); return; }
   if (S.locked) return;

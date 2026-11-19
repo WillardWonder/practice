@@ -8,6 +8,7 @@ import { readOnlyPractice, printPractice } from './print.js';
 import { openShare } from './share.js';
 import { runChecks } from './check.js';
 import { openDictate } from './dictate.js';
+import { viewRoster, viewWeighIn, viewLineup } from './roster.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO, OWNER_EMAIL } from './config.js';
 
 const PRESET_VERSION = '3';
@@ -46,15 +47,15 @@ async function route() {
   if (!can(user, 'member')) return viewPending();
   const views = {
     '': viewHome, practices: viewPractices, p: viewPractice, edit: viewEdit, new: viewNew, run: viewRun, live: viewLiveRun,
-    room: viewRoom, now: viewNow, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
+    room: viewRoom, now: viewNow, roster: () => { shell('roster', ''); viewRoster($('main'), user); }, weighin: () => { shell('roster', ''); viewWeighIn($('main'), user); }, lineup: () => { shell('roster', ''); viewLineup($('main'), user); }, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
   };
   (views[name] || viewHome)(id);
 }
 
 function shell(active, inner) {
-  const tabs = [['', 'Home', '⌂'], ['practices', 'Practices', '▤'], ['now', 'Live', '●'], ['library', 'Library', '☰'], ['history', 'History', '◷']];
+  let tabs = [['', 'Home', '⌂'], ['practices', 'Practices', '▤'], ['now', 'Live', '●'], ['roster', 'Roster', '☺'], ['history', 'History', '◷'], ['library', 'Library', '☰']];
   if (can(user, 'admin')) tabs.push(['admin', 'Admin', '⚙']);
-  if (user.role === 'athlete') { tabs.splice(3, 2); }
+  if (user.role === 'athlete') tabs = tabs.filter(t => ['', 'practices', 'now'].includes(t[0]));
   app.innerHTML = `
     ${!isFirebase ? `<div class="demo-banner">Local Demo mode: data stays in this browser only. ${user.role !== 'owner' ? '' : ''}Preview as:
       <select id="demorole" style="background:transparent;border:1px solid #a16207;border-radius:8px;padding:2px 6px">${ROLES.filter(r => r !== 'pending').map(r => `<option value="${r}" ${user.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select></div>` : ''}
@@ -67,7 +68,7 @@ function shell(active, inner) {
       </div></div></header>
     <div id="livebar">${liveBar()}</div>
     <main class="page">${inner}</main>
-    <nav class="tabbar">${tabs.map(([h, l, ic]) => `<a href="#/${h}" class="${active === h ? 'on' : ''}"><span class="ic">${ic}</span>${l}</a>`).join('')}</nav>`;
+    <nav class="tabbar">${tabs.slice(0, 5).map(([h, l, ic]) => `<a href="#/${h}" class="${active === h ? 'on' : ''}"><span class="ic">${ic}</span>${l}</a>`).join('')}</nav>`;
   $('#usermenu').onclick = userMenu;
   const dr = $('#demorole'); if (dr) dr.onchange = () => store.setDemoRole(dr.value);
 }
@@ -84,6 +85,7 @@ function userMenu() {
     <div class="muted small">${esc(user.email)} · ${ROLE_LABEL[user.role]}</div>
     <label class="field" id="mysite-wrap"><span class="tiny">My building</span><select class="input" id="mysite"><option value="">Loading…</option></select></label>
     <button class="btn lg" style="width:100%" data-act="sound">🔊 Sound & voice settings (this device)</button>
+    <div class="row wrap mobile-only" style="gap:8px"><a class="btn" href="#/library">☰ Library</a>${can(user, 'admin') ? '<a class="btn" href="#/admin">⚙ Admin</a>' : ''}<a class="btn" href="#/history">◷ History</a></div>
     <a class="btn lg" style="width:100%" href="#/check">✓ Check my access</a>
     ${isFirebase ? '<button class="btn lg danger" style="width:100%" data-act="out">Sign out</button>' : ''}
     <div class="motto small" style="margin-top:12px">${MOTTO.map(esc).join('<span>•</span>')}</div></div>`,

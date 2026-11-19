@@ -324,6 +324,13 @@ export function makeRotation(n, mode = 'rotate') {
   };
 }
 
+// Personal stations: everyone works at the same time, each wrestler at the
+// station she's assigned to (her own fix-it work).
+export function makePersonal() {
+  return { id: uid(), type: 'personal', title: 'Personal Stations', category: 'Station', description: '', durationSec: 8 * 60,
+    stations: [{ title: 'Station 1', description: '', category: 'Station', athletes: [] }, { title: 'Station 2', description: '', category: 'Station', athletes: [] }] };
+}
+
 export function makeGoes() {
   return { id: uid(), type: 'goes', title: 'Live Goes', category: 'Live', description: '', cues: [],
     rounds: 3, workSec: 60, restSec: 30, switchAtHalf: false };
