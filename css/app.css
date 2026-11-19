@@ -413,3 +413,7 @@ details summary { cursor: pointer; padding: 6px 0; }
 .ft { display: block; font-weight: 900; text-transform: uppercase; }
 .fw { font-size: .85em; color: #94a3b8; margin-top: 2px; }
 .fm { font-family: var(--mono); font-size: .8em; text-align: right; white-space: nowrap; }
+.szline { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.sz { min-width: 42px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: #0d1428; color: var(--text); font-weight: 800; cursor: pointer; }
+.sz.on { background: var(--blue); border-color: var(--blue); }
+.szt { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

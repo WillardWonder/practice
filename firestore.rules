@@ -160,6 +160,14 @@ service cloud.firestore {
       allow read: if isCoach();
       allow write: if isCoach() && (request.resource == null || (request.resource.data.weight is number && request.resource.data.weight > 0 && request.resource.data.weight < 500));
     }
+    match /settings/{id} {
+      allow read: if isStaff();
+      allow write: if isCoach();
+    }
+    match /profiles/{id} {
+      allow read: if isStaff();
+      allow write: if isCoach();
+    }
     match /lineups/{id} {
       allow read: if isStaff();
       allow write: if isCoach();

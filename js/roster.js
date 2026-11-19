@@ -31,14 +31,14 @@ export async function viewRoster(main, user) {
       && (!q || (full(a) + ' ' + (a.nick || '')).toLowerCase().includes(q)));
     $('#rl').innerHTML = list.length ? list.map(a => `<button class="arow ${a.active === false ? 'off' : ''}" data-a="${a.id}">
         <span class="grow"><span class="an">${esc(a.last)}, ${esc(a.first)}${a.nick ? ` <span class="muted">(${esc(a.nick)})</span>` : ''}</span>
-        <span class="as">${[a.grade ? 'Gr ' + a.grade : '', a.level, siteName(sites, a.site), a.active === false ? 'inactive' : ''].filter(Boolean).map(esc).join(' · ')}</span></span>
+        <span class="as">${[a.grade ? 'Gr ' + a.grade : '', a.weightClass ? a.weightClass + ' lb' : '', a.level, siteName(sites, a.site), a.active === false ? 'inactive' : ''].filter(Boolean).map(esc).join(' · ')}</span></span>
         ${coach && last[a.id] ? `<span class="aw">${last[a.id].weight}<small>${fmtDate(last[a.id].date)}</small></span>` : ''}</button>`).join('')
       : `<div class="empty">${athletes.length ? 'No one matches.' : coach ? 'No wrestlers yet. Tap <b>Paste a list</b> to add the whole team at once.' : 'No roster yet.'}</div>`;
     $('#rcount').textContent = `${list.length} wrestler${list.length === 1 ? '' : 's'}`;
     $$('[data-a]').forEach(b => b.onclick = () => coach && editAthlete(athletes.find(x => x.id === b.dataset.a), sites, weights, () => viewRoster(main, user)));
   };
   main.innerHTML = `<div class="page-head"><div><h1>Roster</h1><div class="muted small" id="rcount"></div></div>
-      ${coach ? `<div class="row wrap" style="gap:8px"><a class="btn go" href="#/weighin">⚖ Weigh-in</a><a class="btn" href="#/lineup">📷 Photo caption</a></div>` : ''}</div>
+      ${coach ? `<div class="row wrap" style="gap:8px"><a class="btn go" href="#/weighin">⚖ Weigh-in</a><a class="btn" href="#/lineup">📷 Photo caption</a><a class="btn" href="#/sizes">👕 Sizes</a><a class="btn" href="#/paper">📰 Newspaper</a></div>` : ''}</div>
     ${coach ? `<div class="row wrap" style="gap:8px;margin-bottom:12px"><button class="btn primary" id="addA">＋ Add wrestler</button><button class="btn" id="paste">📋 Paste a list</button><button class="btn ghost sm" id="csv">⬇ Export</button></div>` : ''}
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <input class="input" id="rq" placeholder="🔍 Search names…" value="${esc(rFilter.q)}" style="max-width:320px">
@@ -64,6 +64,7 @@ function athleteForm(a, sites, user) {
     <label class="field"><span class="tiny">Goes by (optional)</span><input class="input" id="an" value="${esc(a?.nick || '')}" placeholder="e.g. Kenzie"></label>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
       <label class="field"><span class="tiny">Grade</span><select class="input" id="ag"><option value=""></option>${GRADES.map(g => `<option ${a?.grade === g ? 'selected' : ''}>${g}</option>`).join('')}</select></label>
+      <label class="field"><span class="tiny">Weight class</span><input class="input" id="aw" value="${esc(a?.weightClass || '')}" inputmode="numeric" placeholder="e.g. 120"></label>
       <label class="field"><span class="tiny">Level</span><select class="input" id="av"><option value=""></option>${LEVELS.map(l => `<option ${a?.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       ${sites.length ? `<label class="field"><span class="tiny">Building</span><select class="input" id="as"><option value=""></option>${sites.map(s => `<option value="${s.id}" ${site === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>` : ''}
     </div></div>`;
@@ -71,7 +72,7 @@ function athleteForm(a, sites, user) {
 function readAthlete(w, base = {}) {
   const first = w.querySelector('#af').value.trim(), last = w.querySelector('#al').value.trim();
   if (!first || !last) { toast('First and last name, please', 'error'); return null; }
-  return { ...base, first, last, nick: w.querySelector('#an').value.trim(), grade: w.querySelector('#ag').value, level: w.querySelector('#av').value,
+  return { ...base, first, last, nick: w.querySelector('#an').value.trim(), grade: w.querySelector('#ag').value, weightClass: w.querySelector('#aw').value.trim(), level: w.querySelector('#av').value,
     site: w.querySelector('#as')?.value || base.site || '', active: base.active !== false };
 }
 
@@ -213,7 +214,9 @@ export async function viewLineup(main, user) {
     const names = ROW_NAMES(L.rowsCount);
     const parts = L.rows.map((r, i) => r.length ? `${names[i]}${L.rowsCount > 1 ? ', from left' : ''}: ${r.map(x => x.name).join(', ')}` : '').filter(Boolean);
     const missing = L.notPictured ? pool().filter(a => !placed().has(a.id)).map(full) : [];
-    return parts.join('. ') + (parts.length ? '.' : '') + (missing.length ? ` Not pictured: ${missing.join(', ')}.` : '');
+    const head = L.team ? `${L.team}. ` : '';
+    const credit = L.photographer ? ` (Photo by ${L.photographer})` : '';
+    return head + parts.join('. ') + (parts.length ? '.' : '') + (missing.length ? ` Not pictured: ${missing.join(', ')}.` : '') + credit;
   };
   const draw = () => {
     const pl = placed(), names = ROW_NAMES(L.rowsCount);
@@ -233,6 +236,9 @@ export async function viewLineup(main, user) {
       <label class="small row" style="gap:6px;align-self:flex-end;padding-bottom:12px"><input type="checkbox" id="lnp" ${L.notPictured ? 'checked' : ''}> List "Not pictured"</label>
       <button class="btn ghost sm" id="lclr" style="align-self:flex-end;margin-bottom:8px">Start over</button>
     </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-bottom:10px">
+      <label class="field"><span class="tiny">Team name (starts the caption)</span><input class="input" id="lteam" value="${esc(L.team ?? 'Merrill High School Girls Wrestling')}"></label>
+      <label class="field"><span class="tiny">Photo by (the paper credits this)</span><input class="input" id="lph" value="${esc(L.photographer || '')}" placeholder="Photographer's name"></label></div>
     <div class="small muted" style="margin-bottom:8px">Tap a row, then tap names in order from <b>left to right</b> as you look at the photo. Drag a name to fix the order; ✕ removes it.</div>
     <div id="rows" class="stack"></div>
     <div class="card" style="margin-top:12px"><div class="row wrap between" style="gap:8px"><b>Add to the selected row</b>
@@ -247,6 +253,9 @@ export async function viewLineup(main, user) {
   $('#lnp').onchange = (e) => { L.notPictured = e.target.checked; draw(); };
   $('#lclr').onclick = async () => { if (await confirmBox('Start over?', 'Clears every row.', 'Clear')) { L.rows = Array.from({ length: L.rowsCount }, () => []); L.cur = 0; draw(); } };
   $('#lq').oninput = draw;
+  L.team ??= 'Merrill High School Girls Wrestling';
+  $('#lteam').oninput = (e) => { L.team = e.target.value.trim(); draw(); };
+  $('#lph').oninput = (e) => { L.photographer = e.target.value.trim(); draw(); };
   $('#lx').onsubmit = (e) => { e.preventDefault(); const n = $('#lxn').value.trim(); if (!n) return; L.rows[L.cur].push({ id: null, name: n }); $('#lxn').value = ''; draw(); };
   $('#lcp').onclick = async () => { try { await navigator.clipboard.writeText(caption()); toast('Caption copied', 'success'); } catch (e) { prompt('Copy the caption:', caption()); } };
   main.onclick = (e) => {
@@ -256,4 +265,114 @@ export async function viewLineup(main, user) {
     const row = e.target.closest('.lrow'); if (row && !e.target.closest('.lchip')) { L.cur = +row.dataset.row; draw(); }
   };
   draw();
+}
+
+
+// ---- Gear sizes ----------------------------------------------------------
+const SIZE_LIST = ['YS', 'YM', 'YL', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'];
+const DEFAULT_GEAR = { items: ['T-shirt', 'Hoodie', 'Shorts'],
+  message: 'Gear sizes: please order ONE SIZE UP from what you wear right now. Team gear runs small, it shrinks a little in the wash, and you need room to move and grow during the season. If you are between sizes, go bigger.' };
+async function gearSettings() { try { const s = (await store.list('settings')).find(x => x.id === 'gear'); return { ...DEFAULT_GEAR, ...(s || {}) }; } catch (e) { return { ...DEFAULT_GEAR }; } }
+
+export async function viewSizes(main, user) {
+  if (!can(user, 'edit')) { location.hash = '#/roster'; return; }
+  main.innerHTML = '<div class="muted">Loading…</div>';
+  const [{ athletes, sites }, gear] = await Promise.all([load(), gearSettings()]);
+  let site = sites.some(x => x.id === user.prefs?.site) ? user.prefs.site : 'all';
+  const list = () => athletes.filter(a => a.active !== false && (site === 'all' || !sites.length || a.site === site));
+  const saveGear = () => store.put('settings', 'gear', { items: gear.items, message: gear.message }).catch(e => toast(e.code || e.message, 'error'));
+  const totals = () => gear.items.map(it => { const c = {}; list().forEach(a => { const v = a.sizes?.[it]; if (v) c[v] = (c[v] || 0) + 1; });
+    const missing = list().filter(a => !a.sizes?.[it]).length;
+    return `<div class="szt"><b>${esc(it)}</b> ${SIZE_LIST.filter(z => c[z]).map(z => `<span class="badge">${z} × ${c[z]}</span>`).join(' ') || '<span class="muted small">none yet</span>'}${missing ? ` <span class="small" style="color:#fde68a">${missing} missing</span>` : ''}</div>`; }).join('');
+  const draw = () => {
+    $('#szl').innerHTML = list().map(a => `<div class="card szrow" data-a="${a.id}"><div class="an" style="margin-bottom:6px">${esc(a.first)} ${esc(a.last)}</div>
+      ${gear.items.map(it => `<div class="szline"><span class="small muted" style="width:70px">${esc(it)}</span><div class="row wrap" style="gap:4px">${SIZE_LIST.map(z => `<button class="sz ${a.sizes?.[it] === z ? 'on' : ''}" data-it="${esc(it)}" data-z="${z}">${z}</button>`).join('')}</div></div>`).join('')}</div>`).join('')
+      || '<div class="empty">No active wrestlers. Add them on the <a href="#/roster">Roster</a>.</div>';
+    $('#szt').innerHTML = totals();
+  };
+  main.innerHTML = `<div class="page-head"><div><h1>Gear sizes</h1><div class="muted small">Tap each girl's size. Totals at the bottom are ready for the order.</div></div><a class="btn ghost sm" href="#/roster">← Roster</a></div>
+    <div class="card stack" style="margin-bottom:12px"><div class="row between"><b>Message to the team</b><button class="btn gold sm" id="szcp">Copy message</button></div>
+      <textarea class="input" id="szm" rows="3">${esc(gear.message)}</textarea>
+      <div class="row wrap" style="gap:6px"><span class="tiny">Items</span>${gear.items.map((it, i) => `<span class="chip on">${esc(it)} <button class="btn ghost sm" data-rmit="${i}" style="padding:0 4px;color:#111">✕</button></span>`).join('')}
+        <form id="szadd" class="row" style="gap:6px"><input class="input" id="szi" placeholder="Add item (e.g. Singlet)" style="width:180px"><button class="btn sm">Add</button></form></div></div>
+    ${sites.length ? `<select class="input" id="szs" style="width:auto;margin-bottom:10px"><option value="all">All buildings</option>${sites.map(x => `<option value="${x.id}" ${site === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
+    <div class="stack" id="szl"></div>
+    <div class="card" style="margin-top:12px"><div class="row between"><b>Order totals</b><button class="btn sm" id="szcsv">⬇ Export</button></div><div id="szt" class="stack" style="margin-top:8px"></div></div>`;
+  $('#szm').onchange = (e) => { gear.message = e.target.value; saveGear(); };
+  $('#szcp').onclick = async () => { try { await navigator.clipboard.writeText($('#szm').value); toast('Copied. Paste it into your team text or email.', 'success'); } catch (e) { prompt('Copy:', $('#szm').value); } };
+  $('#szadd').onsubmit = (e) => { e.preventDefault(); const v = $('#szi').value.trim(); if (!v || gear.items.includes(v)) return; gear.items.push(v); saveGear(); viewSizes(main, user); };
+  $$('[data-rmit]').forEach(b => b.onclick = () => { gear.items.splice(+b.dataset.rmit, 1); saveGear(); viewSizes(main, user); });
+  $('#szs') && ($('#szs').onchange = (e) => { site = e.target.value; draw(); });
+  $('#szcsv').onclick = () => {
+    const rows = [['last', 'first', ...gear.items]].concat(list().map(a => [a.last, a.first, ...gear.items.map(it => a.sizes?.[it] || '')]));
+    download(`gear-sizes-${today()}.csv`, rows.map(r => r.map(v => `"${String(v ?? '')}"`).join(',')).join('\n'), 'text/csv');
+  };
+  $('#szl').onclick = async (e) => {
+    const b = e.target.closest('.sz'); if (!b) return;
+    const a = athletes.find(x => x.id === b.closest('[data-a]').dataset.a);
+    a.sizes = { ...(a.sizes || {}), [b.dataset.it]: a.sizes?.[b.dataset.it] === b.dataset.z ? '' : b.dataset.z };
+    b.parentElement.querySelectorAll('.sz').forEach(x => x.classList.toggle('on', x === b && a.sizes[b.dataset.it] === b.dataset.z));
+    $('#szt').innerHTML = totals();
+    const { id, ...data } = a; try { await store.put('athletes', a.id, data); } catch (err) { toast('Not saved: ' + (err.code || err.message), 'error'); }
+  };
+  draw();
+}
+
+// ---- Newspaper season profile (Merrill Foto News) -------------------------
+const YEAR = { '9': 'Fr.', '10': 'So.', '11': 'Jr.', '12': 'Sr.', '8': '8th', '7': '7th', '6': '6th' };
+export const paperName = (a) => `${a.first} ${a.last}${a.grade || a.weightClass ? ` (${[YEAR[a.grade] || (a.grade ? 'Gr. ' + a.grade : ''), a.weightClass].filter(Boolean).join('-')})` : ''}`;
+const PFIELDS = [
+  ['sport', 'Sport', 1, 'Girls Wrestling'], ['head', 'Head Coach (years as head coach, e.g. 3rd year)', 1, ''], ['assistants', 'Assistant Coaches (years, e.g. 2nd year)', 2, ''],
+  ['record', '2025-26 Record', 1, ''], ['post', '2025-26 Post Season Results', 2, ''], ['allconf', 'Returning All-Conference', 2, ''],
+  ['returners', 'Key Returners (from last season)', 3, ''], ['losses', 'Key Losses (from last season)', 2, ''], ['newcomers', 'Key Newcomers (name, year and weight)', 3, ''],
+  ['recap', '2025-26 Recap: high points, matches of note, performances, strengths and weaknesses', 6, ''],
+  ['outlook', '2026-27 Outlook: strengths, areas to improve, keys to success, opponents and conference', 6, ''],
+  ['final', 'A Final Word From The Coach: goals, big events, community support', 4, ''],
+];
+let pTeam = null;
+export async function viewPaper(main, user) {
+  if (!can(user, 'edit')) { location.hash = '#/roster'; return; }
+  main.innerHTML = '<div class="muted">Loading…</div>';
+  const [{ athletes, sites }, profiles] = await Promise.all([load(), store.list('profiles').catch(() => [])]);
+  const teams = sites.length ? sites : [{ id: 'team', name: 'Girls Wrestling' }];
+  pTeam ||= teams.some(t => t.id === user.prefs?.site) ? user.prefs.site : teams[0].id;
+  const pid = `${pTeam}-2026-27`;
+  const P = { ...Object.fromEntries(PFIELDS.map(f => [f[0], f[3]])), ...(profiles.find(x => x.id === pid) || {}) };
+  const roster = athletes.filter(a => a.active !== false && (!sites.length || a.site === pTeam));
+  let lineup = null; try { lineup = JSON.parse(localStorage.getItem('practice-lineup') || 'null'); } catch (e) {}
+  const text = () => {
+    const out = [`${new Date().getFullYear()}-${String(new Date().getFullYear() + 1).slice(2)} Merrill Foto News Winter Sports Preview`, ''];
+    PFIELDS.forEach(([k, label]) => { out.push(`${label.split(':')[0].replace(/\s*\(.*\)$/, '')}: ${(P[k] || '').trim()}`, ''); });
+    if (P.caption) out.push(`Team photo caption: ${P.caption}`, '');
+    return out.join('\n').trim();
+  };
+  let saveT = null;
+  const save = () => { clearTimeout(saveT); $('#pst').textContent = 'Saving…'; saveT = setTimeout(async () => { try { const { id, ...data } = P; await store.put('profiles', pid, data); $('#pst').textContent = '✓ Saved, shared with every coach'; } catch (e) { $('#pst').textContent = '⚠ ' + (e.code || e.message); } }, 700); };
+  main.innerHTML = `<div class="page-head"><div><h1>Newspaper profile</h1><div class="muted small">Merrill Foto News, Winter Sports Profile · due to Tina Scott by <b>Friday, Nov. 20</b></div></div><a class="btn ghost sm" href="#/roster">← Roster</a></div>
+    ${teams.length > 1 ? `<div class="seg" style="display:flex;flex-wrap:wrap;margin-bottom:12px">${teams.map(t => `<button class="${t.id === pTeam ? 'on' : ''}" data-team="${t.id}">${esc(t.name)}</button>`).join('')}</div>` : ''}
+    <div class="small muted" id="pst" style="margin-bottom:8px">Every coach sees and edits the same profile. It saves as you type.</div>
+    <div class="stack" id="pf">${PFIELDS.map(([k, label, rows]) => `<label class="field"><span class="tiny">${esc(label)}</span>
+      ${rows > 1 ? `<textarea class="input" data-k="${k}" rows="${rows}">${esc(P[k] || '')}</textarea>` : `<input class="input" data-k="${k}" value="${esc(P[k] || '')}">`}
+      ${['returners', 'newcomers', 'allconf', 'losses'].includes(k) ? `<button class="btn sm" data-pick="${k}" style="margin-top:6px">＋ Add from roster</button>` : ''}</label>`).join('')}
+      <label class="field"><span class="tiny">Team photo caption (with photographer)</span><textarea class="input" data-k="caption" rows="3">${esc(P.caption || '')}</textarea>
+        <button class="btn sm" id="pcap" style="margin-top:6px">⤓ Use the caption from Photo caption</button></label>
+    </div>
+    <div class="card" style="margin-top:14px;border-color:rgba(250,204,21,.4)"><div class="row wrap between" style="gap:8px"><b>Send it to Tina</b>
+      <span class="row wrap" style="gap:6px"><button class="btn gold" id="pcopy">Copy for email</button><a class="btn" id="pmail" href="#">✉ Open email</a></span></div>
+      <div class="small muted" style="margin-top:6px">To: tscott@mmclocal.com. Attach the team photo, and paste the text if your email app cuts it short.</div></div>`;
+  $('#pf').oninput = (e) => { const k = e.target.dataset.k; if (k) { P[k] = e.target.value; save(); } };
+  $$('[data-team]').forEach(b => b.onclick = () => { pTeam = b.dataset.team; viewPaper(main, user); });
+  $('#pcap').onclick = () => { const c = lineup ? (() => { const n = ROW_NAMES(lineup.rowsCount); const parts = lineup.rows.map((r, i) => r.length ? `${n[i]}${lineup.rowsCount > 1 ? ', from left' : ''}: ${r.map(x => x.name).join(', ')}` : '').filter(Boolean);
+      return (lineup.team ? lineup.team + '. ' : '') + parts.join('. ') + (parts.length ? '.' : '') + (lineup.photographer ? ` (Photo by ${lineup.photographer})` : ''); })() : '';
+    if (!c) return toast('Make the caption first: Roster → Photo caption', 'error');
+    P.caption = c; $('[data-k=caption]').value = c; save(); };
+  $$('[data-pick]').forEach(b => b.onclick = () => {
+    const k = b.dataset.pick; let q = '';
+    const rows = () => roster.filter(a => !q || `${a.first} ${a.last}`.toLowerCase().includes(q.toLowerCase())).map(a => `<button class="dr" data-act="pk" data-id="${a.id}"><span class="grow"><span class="dr-t" style="text-transform:none">${esc(paperName(a))}</span></span><span class="dr-plus">＋</span></button>`).join('') || '<div class="empty">No wrestlers on the roster for this team.</div>';
+    const m = modal({ title: 'Add from roster', wide: true, body: `<div class="small muted" style="margin-bottom:8px">Adds "Name (year-weight)". Set grade and weight class on the Roster so these come out right.</div><input class="input" id="pq" placeholder="🔍 Find…"><div class="drs" id="pl">${rows()}</div>`,
+      onAction: (a, el) => { if (a !== 'pk') return; const ath = roster.find(x => x.id === el.dataset.id); P[k] = [P[k], paperName(ath)].filter(Boolean).join(', '); $(`[data-k=${k}]`).value = P[k]; save(); el.remove(); } });
+    m.el.querySelector('#pq').oninput = (e) => { q = e.target.value; m.el.querySelector('#pl').innerHTML = rows(); };
+  });
+  $('#pcopy').onclick = async () => { try { await navigator.clipboard.writeText(text()); toast('Copied. Paste it into your email to Tina.', 'success'); } catch (e) { prompt('Copy:', text()); } };
+  $('#pmail').onclick = (e) => { e.preventDefault(); location.href = `mailto:tscott@mmclocal.com?subject=${encodeURIComponent('Winter Sports Profile - ' + (P.sport || 'Girls Wrestling'))}&body=${encodeURIComponent(text().slice(0, 1800))}`; };
 }
