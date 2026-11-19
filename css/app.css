@@ -433,3 +433,15 @@ details summary { cursor: pointer; padding: 6px 0; }
 .goalcard.ok { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.45); }
 .goalcard.ok .tiny { color: #86efac; }
 .goalcard .gt { font-weight: 700; }
+.wlock { display: inline-flex; align-items: center; gap: 2px; font-family: var(--mono); font-weight: 900; font-size: 20px; background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.5); border-radius: 12px; padding: 4px 4px 4px 12px; flex: none; }
+.todaybar { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 18px 20px; border-radius: 20px; background: var(--green); color: #052e12; text-decoration: none; }
+.todaybar b { display: block; font-size: 20px; } .todaybar .small { color: #14532d; }
+.tstep { display: flex; gap: 14px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
+.tstep.done { border-color: rgba(34,197,94,.5); }
+.tn { width: 36px; height: 36px; border-radius: 50%; background: var(--panel2); display: grid; place-items: center; font-weight: 900; flex: none; }
+.tstep.done .tn { background: var(--green); color: #052e12; }
+.faces { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.face { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; border-radius: 14px; border: 2px solid var(--line); background: #0d1428; cursor: pointer; color: var(--text); }
+.face span { font-size: 30px; line-height: 1; } .face small { font-size: 10px; color: var(--muted); }
+.face.on { border-color: var(--gold); background: rgba(250,204,21,.12); }
+.flag { display: inline-block; margin-left: 6px; color: #fca5a5; font-weight: 700; }

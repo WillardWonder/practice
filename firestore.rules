@@ -168,6 +168,14 @@ service cloud.firestore {
       allow read: if isStaff();
       allow write: if isCoach();
     }
+    match /meets/{id} {
+      allow read: if isStaff();
+      allow write: if isCoach();
+    }
+    match /meetentries/{id} {
+      allow read: if isCoach();
+      allow write: if isCoach();
+    }
     match /lineups/{id} {
       allow read: if isStaff();
       allow write: if isCoach();

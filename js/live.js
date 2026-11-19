@@ -160,7 +160,7 @@ async function startRun() {
   const siteName = site ? (S.sites.find(x => x.id === site)?.name || '') : '';
   if (site && site !== S.user.prefs?.site) store.setMyPrefs({ site }).catch(() => {});
   const run = {
-    practiceId: S.practice.id, practiceTitle: S.practice.title, levels: S.practice.levels || [], date: S.practice.date || new Date().toISOString().slice(0, 10),
+    practiceId: S.practice.id, practiceTitle: S.practice.title, levels: S.practice.levels || [], date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })(),
     practice: { title: S.practice.title, blocks: S.practice.blocks, startTime: S.practice.startTime || '', notes: S.practice.notes || '' },
     coachUid: S.user.uid, coachName: S.user.name, controllerUid: S.user.uid, controllerName: S.user.name,
     goal: S.practice.goal || null, site, siteName, status: 'live', startedAt: t, heartbeat: t, plannedSec: practiceDuration(S.practice), leadIn: st.leadIn, clock, version: 1,

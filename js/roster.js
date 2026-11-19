@@ -38,7 +38,7 @@ export async function viewRoster(main, user) {
     $$('[data-a]').forEach(b => b.onclick = () => coach && editAthlete(athletes.find(x => x.id === b.dataset.a), sites, weights, () => viewRoster(main, user)));
   };
   main.innerHTML = `<div class="page-head"><div><h1>Roster</h1><div class="muted small" id="rcount"></div></div>
-      ${coach ? `<div class="row wrap" style="gap:8px"><a class="btn go" href="#/weighin">✓ Check-in &amp; weigh-in</a><a class="btn" href="#/lineup">📷 Photo caption</a><a class="btn" href="#/sizes">👕 Sizes</a><a class="btn" href="#/paper">📰 Newspaper</a></div>` : ''}</div>
+      ${coach ? `<div class="row wrap" style="gap:8px"><a class="btn go" href="#/weighin">✓ Check-in &amp; weigh-in</a><a class="btn" href="#/lineup">📷 Photo caption</a><a class="btn" href="#/meets">🏆 Meets</a><a class="btn" href="#/checkins">◷ Check-in history</a><a class="btn" href="#/sizes">👕 Sizes</a><a class="btn" href="#/paper">📰 Newspaper</a></div>` : ''}</div>
     ${coach ? `<div class="row wrap" style="gap:8px;margin-bottom:12px"><button class="btn primary" id="addA">＋ Add wrestler</button><button class="btn" id="paste">📋 Paste a list</button><button class="btn ghost sm" id="csv">⬇ Export</button></div>` : ''}
     ${coach ? `<form id="qa" class="card" style="margin-bottom:12px;padding:12px"><div class="tiny" style="margin-bottom:6px">Quick add: type a name, hit Enter, next girl</div>
       <div class="grid" style="grid-template-columns:1fr 1fr 70px auto;gap:6px">
@@ -102,14 +102,24 @@ function editAthlete(a, sites, weights, done) {
       ${goals.length ? `<div class="tiny" style="margin:16px 0 6px">Practice goals · ${goals.filter(g => g.met === true).length} of ${goals.filter(g => g.met !== undefined).length} hit</div>
         <div class="wh">${goals.slice(0, 15).map(g => `<div class="small">${g.met === true ? '✅' : g.met === false ? '⬜' : '·'} <b>${fmtDate(g.date)}</b> ${esc(goalText(g.goal))}</div>`).join('')}</div>` : ''}
       ${absent ? `<div class="small muted" style="margin-top:8px">Missed ${absent} practice${absent === 1 ? '' : 's'}</div>` : ''}
-      <div class="tiny" style="margin:16px 0 6px">Weigh-ins</div>
+      <div class="row between" style="margin:16px 0 6px"><span class="tiny">Weigh-ins</span><button class="btn sm" data-act="addw">＋ Add a weigh-in</button></div>
+      <div id="addw" class="hidden row wrap" style="gap:6px;margin-bottom:8px"><input type="date" class="input" id="awd" value="${today()}" style="width:auto"><input class="input" id="aww" inputmode="decimal" placeholder="Weight" style="width:100px"><input class="input" id="awn" placeholder="Note (e.g. weighed at 6am)" style="width:200px"><button class="btn primary sm" data-act="savew">Save</button></div>
       ${hist.length ? `<div class="wh">${hist.slice(0, 30).map((w, i) => { const prev = hist[i + 1]; const d = prev ? Math.round((w.weight - prev.weight) * 10) / 10 : null;
-        return `<div class="row between"><span>${fmtDate(w.date)}</span><span><b>${w.weight}</b> ${d ? `<span class="small ${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d}</span>` : ''}</span></div>`; }).join('')}</div>` : '<div class="small muted">None yet.</div>'}` : ''),
+        return `<div class="row between"><span>${fmtDate(w.date)}${w.weightNote ? ` <span class="small muted">${esc(w.weightNote)}</span>` : ''}${w.absent ? ' <span class="small muted">(separate)</span>' : ''}</span><span><b>${w.weight}</b> ${d ? `<span class="small ${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d}</span>` : ''}</span></div>`; }).join('')}</div>` : '<div class="small muted">None yet.</div>'}` : ''),
     footer: `${a ? `<button class="btn danger" data-act="toggle">${a.active === false ? 'Make active' : 'Mark inactive'}</button>` : ''}<span class="grow"></span><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save">Save</button>`,
     onAction: async (act, el, w, close) => {
       try {
         if (act === 'save') { const d = readAthlete(w, a ? { ...a } : {}); if (!d) return; const { id, ...data } = d; await store.put('athletes', a?.id, data); close(); toast('Saved', 'success'); done(); }
         if (act === 'toggle') { const { id, ...data } = a; await store.put('athletes', a.id, { ...data, active: a.active === false }); close(); done(); }
+        if (act === 'addw') w.querySelector('#addw').classList.toggle('hidden');
+        if (act === 'savew') {
+          const d = w.querySelector('#awd').value, n = Math.round(parseFloat(w.querySelector('#aww').value) * 10) / 10;
+          if (!d || !(n > 0 && n < 500)) return toast('Pick a date and a weight', 'error');
+          const docId = `${d}_${a.id}`; const cur = weights.find(x => x.id === docId) || {};
+          const { id: _i, updatedAt, by, ...rest } = cur;
+          await store.put('weighins', docId, { ...rest, athleteId: a.id, date: d, weight: n, ...(w.querySelector('#awn').value.trim() ? { weightNote: w.querySelector('#awn').value.trim() } : {}) });
+          close(); toast('Weigh-in saved', 'success'); done();
+        }
       } catch (e) { toast(e.code || e.message, 'error'); }
     } });
 }
@@ -213,49 +223,54 @@ export async function viewWeighIn(main, user) {
     if (k >= 0) recs[k] = rec; else recs.push(rec);
     return rec;
   };
-  const rowHTML = (a, i) => { const r = recOf(a.id), p = prevW(a.id), off = !!r?.absent;
+  const rowHTML = (a, i) => { const r = recOf(a.id), p = prevW(a.id), off = !!r?.absent, has = typeof r?.weight === 'number';
     return `<div class="wrow ${off ? 'off' : ''}" data-a="${a.id}">
-      <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)}</div>
-        <div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)})` : 'No previous weigh-in'}${r?.goal?.what ? ` · 🎯 <b style="color:#93c5fd">${esc(r.goal.word)}</b>` : ''}</div></div>
-      <button class="btn sm ${r?.goal?.what ? 'primary' : ''}" data-act="goal" ${off ? 'disabled' : ''}>🎯${r?.goal?.what ? '' : ' Goal'}</button>
-      <span class="wd" id="d-${a.id}">${typeof r?.weight === 'number' && p ? diffHTML(r.weight - p.weight) : ''}</span>
-      <input class="input wi ${typeof r?.weight === 'number' ? 'saved' : ''}" inputmode="decimal" enterkeyhint="next" data-i="${i}" value="${typeof r?.weight === 'number' ? r.weight : ''}" placeholder="—" ${off ? 'disabled' : ''} aria-label="Weight">
-      <button class="btn sm ${off ? 'danger' : 'ghost'}" data-act="absent" title="Mark not here">${off ? 'Not here' : '✓ Here'}</button></div>`; };
+      <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)} ${off ? '<span class="badge red">Not here</span>' : '<span class="badge green">Here</span>'}</div>
+        <div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)})` : 'No previous weigh-in'}${r?.goal?.what ? ` · 🎯 <b style="color:#93c5fd">${esc(r.goal.word)}</b>` : ''}${flags(r)}</div></div>
+      ${off ? '' : `<button class="btn sm ${r?.goal?.what ? 'primary' : ''}" data-act="goal">${r?.feel ? FACES[r.feel - 1] : '🎯'}${r?.goal?.what ? '' : ' Check-in'}</button>`}
+      <span class="wd" id="d-${a.id}">${has && p ? diffHTML(r.weight - p.weight) : ''}</span>
+      ${has ? `<span class="wlock" title="Saved">${r.weight}<button class="btn ghost sm" data-act="wedit" aria-label="Change weight">✎</button></span>`
+        : off ? `<button class="btn sm ghost" data-act="wedit" title="Weighed in separately">＋ Weight</button>` : `<input class="input wi" inputmode="decimal" enterkeyhint="next" data-i="${i}" value="" placeholder="—" aria-label="Weight">`}
+      <button class="btn sm ${off ? 'go' : 'ghost'}" data-act="absent">${off ? 'Mark here' : 'Not here'}</button></div>`; };
   const draw = () => { const L = list(); $('#wl').innerHTML = L.length ? L.map(rowHTML).join('') : `<div class="empty">No active wrestlers${wSite !== 'all' ? ' in this building' : ''}. Add them on the <a href="#/roster">Roster</a>.</div>`; count(); };
   const count = () => { const L = list(); const abs = L.filter(a => recOf(a.id)?.absent).length; const w = L.filter(a => typeof recOf(a.id)?.weight === 'number').length; const g = L.filter(a => recOf(a.id)?.goal?.what).length;
-    $('#wc').textContent = `${L.length - abs} here · ${abs} not here · ${w} weighed · ${g} goals set`; };
+    const low = L.filter(a => (recOf(a.id)?.feel || 5) <= 2 || (recOf(a.id)?.sleepHrs && recOf(a.id).sleepHrs <= 6)).length;
+    $('#wc').innerHTML = `${L.length - abs} here · ${abs} not here · ${w} weighed · ${g} check-ins${low ? ` · <span style="color:#fca5a5">${low} to check on</span>` : ''}`; };
   const goalsCard = () => `<div class="card stack" style="margin-bottom:12px"><div class="row between"><b>🏆 Team goals</b><button class="btn sm" data-act="tgedit">Edit</button></div>
     <div class="small"><span class="tiny">Today</span><br>${esc(tg.day) || '<span class="muted">Not set yet</span>'}</div>
     ${tg.mid ? `<div class="small"><span class="tiny">Mid-season</span><br>${esc(tg.mid)}</div>` : ''}
     <div class="small"><span class="tiny">Season</span><br>${esc(tg.season) || '<span class="muted">Not set yet</span>'}</div></div>`;
-  main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="muted small" id="wc"></div></div><a class="btn ghost sm" href="#/roster">← Roster</a></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="muted small" id="wc"></div></div><div class="row" style="gap:6px"><a class="btn ghost sm" href="#/checkins">◷ History</a><a class="btn go sm" href="#/today">Next: practice →</a></div></div>
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <input type="date" class="input" id="wdt" value="${wDate}" style="width:auto">
       ${sites.length ? `<select class="input" id="wst" style="width:auto"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
       <button class="btn ghost sm" id="wcsv">⬇ Export this day</button></div>
     <div id="tgc">${goalsCard()}</div>
-    <div class="small muted" style="margin-bottom:8px">Everyone starts as here. Tap <b>✓ Here</b> to mark someone not here. Type a weight and hit Enter to jump to the next girl. Each girl taps 🎯 to set her goal for today.</div>
+    <div class="small muted" style="margin-bottom:8px">Everyone starts as here. Tap <b>Not here</b> for anyone missing. Type a weight and hit Enter to jump to the next girl. Each girl taps <b>🎯 Check-in</b>: feeling, sleep, recovery fuel, and today's goal.</div>
     <div class="plist" id="wl"></div>`;
   $('#wdt').onchange = (e) => { wDate = e.target.value || today(); draw(); };
   $('#wst') && ($('#wst').onchange = async (e) => { wSite = e.target.value; tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); draw(); });
   $('#wcsv').onclick = () => {
-    const rows = [['last', 'first', 'date', 'here', 'weight', 'change', 'goal_word', 'goal', 'last_goal_met']].concat(list().map(a => { const r = recOf(a.id), p = prevW(a.id);
-      return [a.last, a.first, wDate, r?.absent ? 'no' : 'yes', r?.weight ?? '', typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : '', r?.goal?.word || '', goalText(r?.goal), r?.prevMet ?? '']; }));
+    const rows = [['last', 'first', 'date', 'here', 'weight', 'change', 'feeling_1to5', 'sleep_hrs', 'sleep', 'fruit_veg', 'milk', 'goal_word', 'goal', 'last_goal_met']].concat(list().map(a => { const r = recOf(a.id), p = prevW(a.id);
+      return [a.last, a.first, wDate, r?.absent ? 'no' : 'yes', r?.weight ?? '', typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : '', r?.feel || '', r?.sleepHrs || '', r?.sleepQ || '', r?.fruitVeg ?? '', r?.milk ?? '', r?.goal?.word || '', goalText(r?.goal), r?.prevMet ?? '']; }));
     download(`check-in-${wDate}.csv`, rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   };
   const saveWeight = async (inp) => {
+    if (!inp.isConnected || inp.dataset.saving) return; inp.dataset.saving = '1';
     const id = inp.closest('[data-a]').dataset.a; const v = inp.value.trim();
+    if (!v) { delete inp.dataset.saving; return; }
     if (!v) { if (typeof recOf(id)?.weight === 'number') { await saveRec(id, { weight: undefined }).catch(() => {}); inp.classList.remove('saved'); count(); } return; }
     const n = Math.round(parseFloat(v) * 10) / 10;
-    if (!(n > 0 && n < 500)) { inp.classList.add('bad'); return toast('That weight looks off', 'error'); }
+    if (!(n > 0 && n < 500)) { delete inp.dataset.saving; inp.classList.add('bad'); return toast('That weight looks off', 'error'); }
     inp.classList.remove('bad');
-    try { await saveRec(id, { weight: n }); inp.classList.add('saved'); const p = prevW(id); $(`#d-${id}`).innerHTML = p ? diffHTML(n - p.weight) : ''; count(); }
-    catch (e) { toast('Not saved: ' + (e.code || e.message), 'error'); }
+    try { await saveRec(id, { weight: n }); const row = inp.closest('[data-a]'); const a = athletes.find(x => x.id === id); row.outerHTML = rowHTML(a, list().indexOf(a)); count(); }
+    catch (e) { delete inp.dataset.saving; toast('Not saved: ' + (e.code || e.message), 'error'); }
   };
-  $('#wl').addEventListener('change', (e) => { if (e.target.matches('.wi')) saveWeight(e.target); });
+  $('#wl').addEventListener('change', (e) => { if (e.target.matches('.wi') && !e.target.dataset.saving) saveWeight(e.target); });
   $('#wl').addEventListener('keydown', (e) => {
     if (!e.target.matches('.wi') || e.key !== 'Enter') return;
-    e.preventDefault(); let i = +e.target.dataset.i + 1, nx; while ((nx = $(`.wi[data-i="${i}"]`)) && nx.disabled) i++; if (nx) { nx.focus(); nx.select(); } else e.target.blur();
+    e.preventDefault(); const from = +e.target.dataset.i;
+    saveWeight(e.target).then(() => { const nx = [...document.querySelectorAll('.wi')].find(x => +x.dataset.i > from); if (nx) { nx.focus(); nx.select(); } });
   });
   main.onclick = async (e) => {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
@@ -264,10 +279,18 @@ export async function viewWeighIn(main, user) {
     const a = athletes.find(x => x.id === row.dataset.a);
     if (b.dataset.act === 'absent') {
       const off = !recOf(a.id)?.absent;
-      try { await saveRec(a.id, { absent: off || undefined, ...(off ? { weight: undefined } : {}) }); row.outerHTML = rowHTML(a, list().indexOf(a)); count(); } catch (err) { toast(err.code || err.message, 'error'); }
+      if (off && typeof recOf(a.id)?.weight === 'number' && !(await confirmBox(`Mark ${a.first} not here?`, `She already weighed in today (${recOf(a.id).weight}). Her weight stays saved.`, 'Mark not here', false))) return;
+      try { await saveRec(a.id, { absent: off || undefined }); row.outerHTML = rowHTML(a, list().indexOf(a)); count(); } catch (err) { toast(err.code || err.message, 'error'); }
     }
-    if (b.dataset.act === 'goal') goalSheet(a, recOf(a.id), prevGoal(a.id), tg, async (goal, prevMet, pg) => {
-      await saveRec(a.id, { goal, ...(prevMet !== null ? { prevMet } : {}) });
+    if (b.dataset.act === 'wedit') {
+      const cur = recOf(a.id)?.weight ?? '';
+      const v = prompt(`Change ${a.first}'s weight for ${fmtDate(wDate)}:`, cur); if (v === null) return;
+      const n = Math.round(parseFloat(v) * 10) / 10;
+      if (!(n > 0 && n < 500)) return toast('That weight looks off', 'error');
+      try { await saveRec(a.id, { weight: n }); row.outerHTML = rowHTML(a, list().indexOf(a)); toast('Weight updated', 'success'); } catch (err) { toast(err.code || err.message, 'error'); }
+    }
+    if (b.dataset.act === 'goal') goalSheet(a, recOf(a.id), prevGoal(a.id), tg, async (goal, prevMet, pg, well) => {
+      await saveRec(a.id, { goal, ...well, ...(prevMet !== null ? { prevMet } : {}) });
       if (pg && prevMet !== null) { const { id, updatedAt, by, ...rest } = pg; await store.put('weighins', pg.id, { ...rest, met: prevMet }).catch(() => {}); pg.met = prevMet; }
       const r = $(`[data-a="${a.id}"]`); if (r) r.outerHTML = rowHTML(a, list().indexOf(a)); count();
     });
@@ -276,15 +299,26 @@ export async function viewWeighIn(main, user) {
 }
 const diffHTML = (d) => { d = Math.round(d * 10) / 10; return d === 0 ? '<span class="small muted">±0</span>' : `<span class="small ${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d}</span>`; };
 
+export const FACES = ['😫', '🙁', '😐', '🙂', '😄'];
+const FACE_LABEL = ['Awful', 'Not great', 'OK', 'Good', 'Great'];
+const flags = (r) => !r ? '' : [(r.feel && r.feel <= 2) ? `<span class="flag">${FACES[r.feel - 1]} feeling ${FACE_LABEL[r.feel - 1].toLowerCase()}</span>` : '', (r.sleepHrs && r.sleepHrs <= 6) || r.sleepQ === 'Rough' ? `<span class="flag">😴 ${r.sleepHrs ? r.sleepHrs + 'h' : ''} ${r.sleepQ === 'Rough' ? 'rough sleep' : 'sleep'}</span>` : ''].join('');
+
 function goalSheet(a, rec, pg, tg, onSave) {
   const g = { word: '', what: '', measure: '', when: '', ...(rec?.goal || {}) };
+  const w = { feel: rec?.feel || 0, sleepHrs: rec?.sleepHrs || 0, sleepQ: rec?.sleepQ || '', fruitVeg: rec?.fruitVeg ?? null, milk: rec?.milk ?? null };
   let met = pg && pg.met !== undefined ? pg.met : null;
   const checks = () => smartCheck(g).map(c => `<div class="sm ${c.ok ? 'ok' : ''}"><b>${c.k}</b> ${esc(c.label)}</div>`).join('');
-  const m = modal({ title: `${a.first}'s goal for today`, body: `<div class="stack">
+  const yn = (k, label) => `<div class="row wrap" style="gap:6px;align-items:center"><span class="small" style="min-width:190px">${label}</span><button class="chip ${w[k] === true ? 'on' : ''}" data-act="yn" data-k="${k}" data-v="1">Yes</button><button class="chip ${w[k] === false ? 'on' : ''}" data-act="yn" data-k="${k}" data-v="0">No</button></div>`;
+  const m = modal({ title: `${a.first}'s check-in`, body: `<div class="stack">
+    <div><div class="tiny" style="margin-bottom:6px">How are you feeling today?</div><div class="faces">${FACES.map((f, i) => `<button class="face ${w.feel === i + 1 ? 'on' : ''}" data-act="feel" data-v="${i + 1}"><span>${f}</span><small>${FACE_LABEL[i]}</small></button>`).join('')}</div></div>
+    <div><div class="tiny" style="margin-bottom:6px">How did you sleep last night?</div><div class="row wrap" style="gap:6px">${[5, 6, 7, 8, 9, 10].map(h => `<button class="chip ${w.sleepHrs === h ? 'on' : ''}" data-act="sleep" data-v="${h}">${h === 5 ? '5 or less' : h === 10 ? '10+' : h} hrs</button>`).join('')}</div>
+      <div class="row wrap" style="gap:6px;margin-top:6px">${['Great', 'OK', 'Rough'].map(q => `<button class="chip ${w.sleepQ === q ? 'on' : ''}" data-act="sleepq" data-v="${q}">${q}</button>`).join('')}</div></div>
+    <div><div class="tiny" style="margin-bottom:6px">Recovery fuel since last practice</div><div class="stack" style="gap:6px">${yn('fruitVeg', '🍎 Fruits or veggies?')}${yn('milk', '🥛 Milk or chocolate milk?')}</div></div>
     ${a.goalLong || a.goalMid ? `<div class="card" style="background:#0d1428"><div class="tiny">Your bigger goals</div>${a.goalMid ? `<div class="small" style="margin-top:4px"><b>Mid-season:</b> ${esc(a.goalMid)}</div>` : ''}${a.goalLong ? `<div class="small" style="margin-top:4px"><b>Season:</b> ${esc(a.goalLong)}</div>` : ''}</div>` : ''}
     ${tg.day ? `<div class="small"><span class="tiny">Team goal today</span><br>${esc(tg.day)}</div>` : ''}
     ${pg ? `<div class="card" style="background:#0d1428"><div class="tiny">Last goal (${fmtDate(pg.date)})</div><div class="small" style="margin:4px 0 8px">${esc(goalText(pg.goal))}</div>
       <div class="row" style="gap:6px"><span class="small">Did you hit it?</span><button class="chip ${met === true ? 'on' : ''}" data-act="met" data-v="1">✓ Yes</button><button class="chip ${met === false ? 'on' : ''}" data-act="met" data-v="0">✗ Not yet</button></div></div>` : ''}
+    <div class="tiny" style="margin-top:6px;color:var(--gold)">Today's goal</div>
     <div><div class="tiny" style="margin-bottom:6px">1. Pick your focus word</div><div class="row wrap" style="gap:6px">${WORDS.map(w => `<button class="chip word ${g.word === w ? 'on' : ''}" data-act="word" data-w="${w}">${w}</button>`).join('')}</div>
       <div class="small muted" id="whint" style="margin-top:4px">${g.word ? esc(WORD_HINT[g.word]) : ''}</div></div>
     <label class="field"><span class="tiny">2. What will you do? (be specific)</span><input class="input" data-g="what" value="${esc(g.what)}" placeholder="e.g. Finish my single leg by running the pipe"></label>
@@ -292,14 +326,22 @@ function goalSheet(a, rec, pg, tg, onSave) {
     <label class="field"><span class="tiny">4. When in practice?</span><input class="input" data-g="when" value="${esc(g.when)}" placeholder="e.g. during live goes today"></label>
     <div class="card" style="background:#0d1428"><div class="tiny" style="margin-bottom:6px">Your goal</div><div id="gprev" style="font-weight:700">${esc(goalText(g)) || '<span class="muted">Fill in the steps above</span>'}</div>
       <div class="smart" id="gchk" style="margin-top:10px">${checks()}</div></div></div>`,
-    footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary lg" data-act="save">Save goal</button>`,
-    onAction: async (act, el, w, close) => {
-      if (act === 'word') { g.word = el.dataset.w; w.querySelectorAll('.chip.word').forEach(c => c.classList.toggle('on', c === el)); w.querySelector('#whint').textContent = WORD_HINT[g.word]; refresh(); }
-      if (act === 'met') { met = el.dataset.v === '1'; w.querySelectorAll('[data-act=met]').forEach(c => c.classList.toggle('on', c === el)); }
+    footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary lg" data-act="save">Save check-in</button>`,
+    onAction: async (act, el, wrap, close) => {
+      const on = (sel, el2) => wrap.querySelectorAll(sel).forEach(c => c.classList.toggle('on', c === el2));
+      if (act === 'feel') { w.feel = +el.dataset.v; on('.face', el); }
+      if (act === 'sleep') { w.sleepHrs = +el.dataset.v; on('[data-act=sleep]', el); }
+      if (act === 'sleepq') { w.sleepQ = el.dataset.v; on('[data-act=sleepq]', el); }
+      if (act === 'yn') { w[el.dataset.k] = el.dataset.v === '1'; on(`[data-act=yn][data-k=${el.dataset.k}]`, el); }
+      if (act === 'word') { g.word = el.dataset.w; on('.chip.word', el); wrap.querySelector('#whint').textContent = WORD_HINT[g.word]; refresh(); }
+      if (act === 'met') { met = el.dataset.v === '1'; on('[data-act=met]', el); }
       if (act === 'save') {
+        if (!w.feel) return toast('Tap a face for how you feel today', 'error');
+        if (!w.sleepHrs) return toast('How many hours did you sleep?', 'error');
+        if (w.fruitVeg === null || w.milk === null) return toast('Answer the two recovery-fuel questions', 'error');
         const bad = smartCheck(g).filter(c => !c.ok);
         if (bad.length) return toast('Not a SMART goal yet: ' + bad.map(c => c.label.split(':')[0]).join(', '), 'error');
-        try { await onSave({ word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim() }, met, pg); close(); toast('Goal saved', 'success'); } catch (e) { toast(e.code || e.message, 'error'); }
+        try { await onSave({ word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim() }, met, pg, w); close(); toast('Check-in saved', 'success'); } catch (e) { toast(e.code || e.message, 'error'); }
       }
     } });
   const refresh = () => { m.el.querySelector('#gprev').textContent = goalText(g) || 'Fill in the steps above'; m.el.querySelector('#gchk').innerHTML = checks(); };
@@ -566,4 +608,142 @@ export function practiceGoalSheet(p, onSave, { reason = '' } = {}) {
 export async function publishTeamGoal(goal, site) {
   const key = site && site !== 'all' ? site : 'team';
   await store.put('teamgoals', `${key}-${today()}`, { text: goalText(goal), date: today(), word: goal.word }).catch(() => {});
+}
+
+
+// ---- Check-in history --------------------------------------------------------
+export async function viewCheckins(main, user, date) {
+  if (!can(user, 'edit')) { location.hash = '#/roster'; return; }
+  main.innerHTML = '<div class="muted">Loading…</div>';
+  const [{ athletes, sites }, recs, runs] = await Promise.all([load(), loadWeights(), store.listRuns().catch(() => [])]);
+  const byId = Object.fromEntries(athletes.map(a => [a.id, a]));
+  const dayRuns = (d) => runs.filter(r => !r.test && r.date === d || (!r.date && new Date(r.startedAt).toISOString().slice(0, 10) === d));
+  if (!date) {
+    const days = [...new Set(recs.map(r => r.date).concat(runs.filter(r => !r.test && r.date).map(r => r.date)))].sort().reverse();
+    main.innerHTML = `<div class="page-head"><div><h1>Check-in history</h1><div class="muted small">Every practice day: attendance, weights, goals</div></div><a class="btn go sm" href="#/weighin">✓ Today's check-in</a></div>
+      ${days.length ? `<div class="plist">${days.map(d => { const R = recs.filter(r => r.date === d); const here = R.filter(r => !r.absent).length, out = R.filter(r => r.absent).length;
+        const w = R.filter(r => typeof r.weight === 'number' && !r.absent).length, g = R.filter(r => r.goal?.what).length, runsD = dayRuns(d);
+        return `<a class="prow" href="#/checkins/${d}" style="text-decoration:none;color:inherit"><div class="grow"><div class="pr-t">${fmtDate(d)}</div>
+          <div class="pr-s">${here} here · ${out} not here · ${w} weighed · ${g} goals${runsD.length ? ' · ' + runsD.map(r => esc(r.practiceTitle)).join(', ') : ''}</div></div><span class="muted">›</span></a>`; }).join('')}</div>`
+        : '<div class="empty">No check-ins yet. They show up here after the first weigh-in.</div>'}`;
+    return;
+  }
+  const R = recs.filter(r => r.date === date);
+  const prev = (id) => recs.filter(r => r.athleteId === id && r.date < date && typeof r.weight === 'number').sort((x, y) => y.date.localeCompare(x.date))[0];
+  const rows = athletes.filter(a => R.some(r => r.athleteId === a.id) || a.active !== false).map(a => ({ a, r: R.find(x => x.athleteId === a.id) }));
+  const runsD = dayRuns(date);
+  main.innerHTML = `<div class="row between wrap" style="margin-bottom:12px"><a class="btn ghost sm" href="#/checkins">← All days</a>
+      <button class="btn sm" id="ccsv">⬇ Export</button></div>
+    <div class="page-head"><div><h1>${fmtDate(date)}</h1><div class="muted small">${R.filter(r => !r.absent).length} here · ${R.filter(r => r.absent).length} not here</div></div></div>
+    ${runsD.length ? `<div class="stack" style="margin-bottom:12px">${runsD.map(r => `<a class="card" href="#/history/${r.id}" style="text-decoration:none;color:inherit;display:block"><div class="tiny">Practice${r.siteName ? ' · ' + esc(r.siteName) : ''}</div>
+      <b>${esc(r.practiceTitle)}</b>${r.goal?.what ? `<div class="small" style="margin-top:4px">🎯 ${esc(goalText(r.goal))}</div>` : ''}<div class="small muted">${esc(r.status)}${r.actualSec ? ' · ' + Math.round(r.actualSec / 60) + ' min' : ''} ›</div></a>`).join('')}</div>` : '<div class="small muted" style="margin-bottom:12px">No practice was run this day.</div>'}
+    <div class="card" style="padding:0;overflow-x:auto"><table class="list"><tr><th>Wrestler</th><th>Here</th><th>Weight</th><th>Feeling</th><th>Sleep</th><th>Fuel</th><th>Goal</th><th>Hit?</th></tr>
+      ${rows.map(({ a, r }) => { const p = prev(a.id); const d = typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : null;
+        return `<tr><td><b>${esc(a.first)} ${esc(a.last)}</b></td><td>${r?.absent ? '<span class="badge red">No</span>' : r ? '<span class="badge green">Yes</span>' : '<span class="muted small">no check-in</span>'}</td>
+          <td>${typeof r?.weight === 'number' ? `${r.weight} ${d !== null ? `<span class="small ${d > 0 ? 'up' : d < 0 ? 'down' : 'muted'}">${d > 0 ? '+' : ''}${d}</span>` : ''}` : ''}</td>
+          <td style="font-size:20px">${r?.feel ? FACES[r.feel - 1] : ''}</td><td class="small">${r?.sleepHrs ? r.sleepHrs + 'h ' + (r.sleepQ || '') : ''}</td>
+          <td>${r?.fruitVeg ? '🍎' : ''}${r?.milk ? '🥛' : ''}</td>
+          <td class="small">${esc(goalText(r?.goal))}</td><td>${r?.met === true ? '✅' : r?.met === false ? '⬜' : ''}</td></tr>`; }).join('')}</table></div>`;
+  $('#ccsv').onclick = () => {
+    const out = [['last', 'first', 'date', 'here', 'weight', 'goal', 'goal_met']].concat(rows.map(({ a, r }) => [a.last, a.first, date, r?.absent ? 'no' : r ? 'yes' : '', r?.weight ?? '', goalText(r?.goal), r?.met ?? '']));
+    download(`check-in-${date}.csv`, out.map(x => x.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
+  };
+}
+
+// Summary of today's check-in (for the Today page)
+export async function checkinSummary(site) {
+  const [{ athletes, sites }, recs] = await Promise.all([load(), loadWeights()]);
+  const L = athletes.filter(a => a.active !== false && (!site || site === 'all' || !sites.length || a.site === site));
+  const R = recs.filter(r => r.date === today());
+  const of = (id) => R.find(r => r.athleteId === id);
+  return { total: L.length, absent: L.filter(a => of(a.id)?.absent).length, weighed: L.filter(a => typeof of(a.id)?.weight === 'number').length,
+    hereWeighed: L.filter(a => !of(a.id)?.absent && typeof of(a.id)?.weight === 'number').length,
+    goals: L.filter(a => of(a.id)?.goal?.what).length };
+}
+
+
+// ---- Meets: goal before, reflection after ------------------------------------------
+export async function viewMeets(main, user, id) {
+  if (!can(user, 'edit')) { location.hash = '#/roster'; return; }
+  main.innerHTML = '<div class="muted">Loading…</div>';
+  const [{ athletes, sites }, meets] = await Promise.all([load(), store.list('meets').catch(() => [])]);
+  meets.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  if (!id) {
+    main.innerHTML = `<div class="page-head"><div><h1>Meets</h1><div class="muted small">Each girl sets a goal before and reflects after</div></div><a class="btn ghost sm" href="#/roster">← Roster</a></div>
+      <form id="mf" class="card row wrap" style="gap:8px;margin-bottom:12px"><input class="input" id="mn" placeholder="Meet name (e.g. Merrill Invite)" style="max-width:260px" required><input type="date" class="input" id="md" value="${today()}" style="width:auto">
+        ${sites.length ? `<select class="input" id="ms" style="width:auto">${sites.map(x => `<option value="${x.id}" ${user.prefs?.site === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}<button class="btn primary">＋ Add meet</button></form>
+      <div class="plist">${meets.map(m => `<a class="prow" href="#/meets/${m.id}" style="text-decoration:none;color:inherit"><div class="grow"><div class="pr-t">${esc(m.name)}</div><div class="pr-s">${m.date ? fmtDate(m.date) : ''}${siteName(sites, m.site) ? ' · ' + esc(siteName(sites, m.site)) : ''}</div></div><span class="muted">›</span></a>`).join('') || '<div class="empty">No meets yet.</div>'}</div>`;
+    $('#mf').onsubmit = async (e) => { e.preventDefault(); try { const nid = await store.put('meets', null, { name: $('#mn').value.trim(), date: $('#md').value, site: $('#ms')?.value || '' }); location.hash = `#/meets/${nid}`; } catch (err) { toast(err.code || err.message, 'error'); } };
+    return;
+  }
+  const meet = meets.find(m => m.id === id); if (!meet) { main.innerHTML = '<div class="empty">Meet not found.</div>'; return; }
+  const entries = (await store.list('meetentries').catch(() => [])).filter(e => e.meetId === id);
+  const roster = athletes.filter(a => a.active !== false && (!sites.length || !meet.site || a.site === meet.site));
+  const entOf = (aid) => entries.find(e => e.athleteId === aid);
+  const save = async (aid, patch) => { const cur = entOf(aid) || { meetId: id, athleteId: aid }; const { id: _i, updatedAt, by, ...rest } = cur; const next = { ...rest, ...patch, meetId: id, athleteId: aid };
+    await store.put('meetentries', `${id}_${aid}`, next); const k = entries.findIndex(e => e.athleteId === aid); const rec = { ...next, id: `${id}_${aid}` }; if (k >= 0) entries[k] = rec; else entries.push(rec); };
+  const summary = () => {
+    const lines = roster.map(a => ({ a, e: entOf(a.id) })).filter(x => x.e?.wins !== undefined || x.e?.losses !== undefined)
+      .map(({ a, e }) => `${paperName(a)}: ${e.wins || 0}-${e.losses || 0}${e.place ? `, ${e.place}` : ''}${e.pins ? `, ${e.pins} pin${e.pins > 1 ? 's' : ''}` : ''}`);
+    return `${meet.name}${meet.date ? ` (${fmtDate(meet.date)})` : ''}\nMerrill girls wrestling results:\n${lines.join('\n') || '(no results entered yet)'}\n\nCoach's comments: `;
+  };
+  const draw = () => {
+    $('#ml').innerHTML = roster.map(a => { const e = entOf(a.id);
+      return `<div class="wrow" data-a="${a.id}"><div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)}</div>
+        <div class="as">${e?.goal?.what ? '🎯 ' + esc(goalText(e.goal)) : 'No meet goal yet'}${e?.wins !== undefined ? ` · <b>${e.wins}-${e.losses}</b>` : ''}${e?.feel ? ' · ' + FACES[e.feel - 1] : ''}</div></div>
+        <button class="btn sm ${e?.goal?.what ? 'primary' : ''}" data-act="mgoal">🎯 Goal</button><button class="btn sm ${e?.wentWell ? 'primary' : ''}" data-act="mref">📝 Reflect</button></div>`; }).join('') || '<div class="empty">No wrestlers on the roster for this building.</div>';
+  };
+  main.innerHTML = `<div class="row between wrap" style="margin-bottom:12px"><a class="btn ghost sm" href="#/meets">← Meets</a><button class="btn gold sm" id="mcopy">📰 Copy results for the paper</button></div>
+    <div class="page-head"><div><h1>${esc(meet.name)}</h1><div class="muted small">${meet.date ? fmtDate(meet.date) : ''} · ${entries.filter(e => e.goal?.what).length} goals · ${entries.filter(e => e.wentWell).length} reflections</div></div></div>
+    <div class="small muted" style="margin-bottom:8px">Before: each girl sets one SMART goal for this meet with a focus word. After: her record, what went well, what to work on.</div>
+    <div class="plist" id="ml"></div>`;
+  $('#mcopy').onclick = async () => { try { await navigator.clipboard.writeText(summary()); toast('Copied. Add a few lines from you and send it to Tina.', 'success'); } catch (e) { prompt('Copy:', summary()); } };
+  main.onclick = (ev) => {
+    const b = ev.target.closest('[data-act]'); if (!b) return; const row = b.closest('[data-a]'); if (!row) return;
+    const a = athletes.find(x => x.id === row.dataset.a); const e = entOf(a.id) || {};
+    if (b.dataset.act === 'mgoal') {
+      const g = { word: '', what: '', measure: '', when: 'at this meet', ...(e.goal || {}) };
+      const chk = () => smartCheck(g).map(c => `<div class="sm ${c.ok ? 'ok' : ''}"><b>${c.k}</b> ${esc(c.label.replace("today's practice", 'this meet').replace('Achievable today (not a season goal)', 'Achievable at this meet'))}</div>`).join('');
+      const m = modal({ title: `${a.first}'s goal for ${meet.name}`, body: `<div class="stack">
+        <div class="row wrap" style="gap:6px">${WORDS.map(x => `<button class="chip word ${g.word === x ? 'on' : ''}" data-act="word" data-w="${x}">${x}</button>`).join('')}</div>
+        <label class="field"><span class="tiny">What will you do?</span><input class="input" data-g="what" value="${esc(g.what)}" placeholder="e.g. Shoot first in every match"></label>
+        <label class="field"><span class="tiny">How many, or how will you know?</span><input class="input" data-g="measure" value="${esc(g.measure)}" placeholder="e.g. in the first 30 seconds"></label>
+        <label class="field"><span class="tiny">When?</span><input class="input" data-g="when" value="${esc(g.when)}"></label>
+        <div class="card" style="background:#0d1428"><b id="gp">${esc(goalText(g))}</b><div class="smart" id="gc" style="margin-top:8px">${chk()}</div></div></div>`,
+        footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save">Save</button>`,
+        onAction: async (act, el, w, close) => {
+          if (act === 'word') { g.word = el.dataset.w; w.querySelectorAll('.chip.word').forEach(c => c.classList.toggle('on', c === el)); w.querySelector('#gp').textContent = goalText(g); w.querySelector('#gc').innerHTML = chk(); }
+          if (act === 'save') { const bad = smartCheck(g).filter(c => !c.ok && c.k !== 'A'); if (bad.length) return toast('Not SMART yet: ' + bad.map(c => c.label.split(':')[0]).join(', '), 'error');
+            try { await save(a.id, { goal: { word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim() } }); close(); draw(); } catch (err) { toast(err.code || err.message, 'error'); } }
+        } });
+      m.el.querySelector('.mb').addEventListener('input', (x) => { if (x.target.dataset.g) { g[x.target.dataset.g] = x.target.value; m.el.querySelector('#gp').textContent = goalText(g); m.el.querySelector('#gc').innerHTML = chk(); } });
+    }
+    if (b.dataset.act === 'mref') {
+      const r = { feel: e.feel || 0, goalMet: e.goalMet ?? null };
+      modal({ title: `${a.first}'s reflection`, body: `<div class="stack">
+        ${e.goal?.what ? `<div class="card" style="background:#0d1428"><div class="tiny">Her goal</div><b>${esc(goalText(e.goal))}</b>
+          <div class="row" style="gap:6px;margin-top:8px"><span class="small">Did you hit it?</span><button class="chip ${r.goalMet === true ? 'on' : ''}" data-act="gm" data-v="1">✓ Yes</button><button class="chip ${r.goalMet === false ? 'on' : ''}" data-act="gm" data-v="0">✗ Not yet</button></div></div>` : ''}
+        <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:6px">
+          <label class="field"><span class="tiny">Wins</span><input class="input" id="rw" inputmode="numeric" value="${e.wins ?? ''}"></label>
+          <label class="field"><span class="tiny">Losses</span><input class="input" id="rl" inputmode="numeric" value="${e.losses ?? ''}"></label>
+          <label class="field"><span class="tiny">Pins</span><input class="input" id="rp" inputmode="numeric" value="${e.pins ?? ''}"></label>
+          <label class="field"><span class="tiny">Place</span><input class="input" id="rpl" value="${esc(e.place || '')}" placeholder="2nd"></label></div>
+        <div><div class="tiny" style="margin-bottom:6px">How do you feel about today?</div><div class="faces">${FACES.map((f, i) => `<button class="face ${r.feel === i + 1 ? 'on' : ''}" data-act="feel" data-v="${i + 1}"><span>${f}</span><small>${FACE_LABEL[i]}</small></button>`).join('')}</div></div>
+        <label class="field"><span class="tiny">What went well?</span><textarea class="input" id="rww" rows="2">${esc(e.wentWell || '')}</textarea></label>
+        <label class="field"><span class="tiny">What will you work on in practice?</span><textarea class="input" id="rwo" rows="2">${esc(e.workOn || '')}</textarea></label></div>`,
+        footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save">Save</button>`,
+        onAction: async (act, el, w, close) => {
+          if (act === 'feel') { r.feel = +el.dataset.v; w.querySelectorAll('.face').forEach(c => c.classList.toggle('on', c === el)); }
+          if (act === 'gm') { r.goalMet = el.dataset.v === '1'; w.querySelectorAll('[data-act=gm]').forEach(c => c.classList.toggle('on', c === el)); }
+          if (act === 'save') {
+            const n = (sel) => { const v = parseInt(w.querySelector(sel).value); return Number.isFinite(v) ? v : undefined; };
+            const patch = { wins: n('#rw'), losses: n('#rl'), pins: n('#rp'), place: w.querySelector('#rpl').value.trim(), feel: r.feel || undefined, goalMet: r.goalMet ?? undefined,
+              wentWell: w.querySelector('#rww').value.trim(), workOn: w.querySelector('#rwo').value.trim() };
+            Object.keys(patch).forEach(k => patch[k] === undefined && delete patch[k]);
+            try { await save(a.id, patch); close(); draw(); toast('Reflection saved', 'success'); } catch (err) { toast(err.code || err.message, 'error'); }
+          }
+        } });
+    }
+  };
+  draw();
 }
