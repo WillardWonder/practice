@@ -130,7 +130,7 @@ service cloud.firestore {
             && request.resource.data.startedAt == resource.data.startedAt
             && request.resource.data.practice == resource.data.practice)
           || (resource.data.status != 'live'
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['notes', 'attendance', 'rating'])));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['notes', 'attendance', 'rating', 'absent'])));
       allow delete: if isAdmin();
     }
 
@@ -158,7 +158,12 @@ service cloud.firestore {
     }
     match /weighins/{id} {
       allow read: if isCoach();
-      allow write: if isCoach() && (request.resource == null || (request.resource.data.weight is number && request.resource.data.weight > 0 && request.resource.data.weight < 500));
+      allow write: if isCoach() && (request.resource == null || (request.resource.data.athleteId is string
+                    && (!('weight' in request.resource.data) || (request.resource.data.weight is number && request.resource.data.weight > 0 && request.resource.data.weight < 500))));
+    }
+    match /teamgoals/{id} {
+      allow read: if isMember();
+      allow write: if isCoach();
     }
     match /settings/{id} {
       allow read: if isStaff();

@@ -465,7 +465,7 @@ async function viewHistory() {
       <tr><th>Date</th><th>Practice</th><th>Building</th><th>Coach</th><th>Status</th><th>Planned → actual</th><th>Wrestlers</th><th></th></tr>
       ${runs.map(r => `<tr class="click" data-r="${r.id}"><td>${new Date(r.startedAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}<div class="small muted">${new Date(r.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div></td>
         <td><b>${esc(r.practiceTitle)}</b>${r.notes ? `<div class="small muted">${esc(r.notes.slice(0, 80))}</div>` : ''}</td><td class="small">${esc(r.siteName || '')}</td><td>${esc(r.coachName || '')}</td>
-        <td>${runBadge(r)}</td><td class="small">${fmt(r.plannedSec || 0)} → ${r.actualSec ? fmt(r.actualSec) : '—'}</td><td>${r.attendance ?? '—'}</td><td>${r.rating ? '★'.repeat(r.rating) : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No practices run yet. Runs show up here after you press Start.</td></tr>'}
+        <td>${runBadge(r)}</td><td class="small">${fmt(r.plannedSec || 0)} → ${r.actualSec ? fmt(r.actualSec) : '—'}</td><td>${r.attendance ?? '—'}${r.absent?.length ? `<div class="small muted">out: ${r.absent.map(esc).join(', ')}</div>` : ''}</td><td>${r.rating ? '★'.repeat(r.rating) : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No practices run yet. Runs show up here after you press Start.</td></tr>'}
     </table></div>`;
   $$('[data-r]').forEach(tr => tr.onclick = () => location.hash = `#/history/${tr.dataset.r}`);
   $('#csv').onclick = () => {
@@ -490,6 +490,7 @@ async function viewRunDetail(id) {
     <div class="card pad-lg">
       <div class="tiny">${new Date(r.startedAt).toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${esc(r.coachName || '')}${r.siteName ? ' · ' + esc(r.siteName) : ''}</div>
       <h1 style="font-size:30px;font-weight:900;text-transform:uppercase;font-style:italic;margin-top:6px">${esc(r.practiceTitle)}</h1>
+      ${r.goal?.what ? `<div style="margin-top:8px"><span class="tiny">🎯 Goal</span> <b>${esc((r.goal.word ? r.goal.word.toUpperCase() + ': ' : '') + r.goal.what + (r.goal.measure ? ', ' + r.goal.measure : '') + (r.goal.when ? ', ' + r.goal.when : ''))}</b></div>` : ''}
       <div class="row wrap" style="margin-top:10px;gap:8px">${runBadge(r)}<span class="badge">Planned ${fmt(r.plannedSec || 0)}</span>${r.actualSec ? `<span class="badge">Actual ${fmt(r.actualSec)}</span>` : ''}${r.pausedSec ? `<span class="badge">Paused ${fmt(r.pausedSec)}</span>` : ''}${r.endedBy ? `<span class="small muted">closed by ${esc(r.endedBy)}</span>` : ''}</div>
     </div>
     <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(260px,1fr);margin-top:14px;align-items:start">
@@ -505,6 +506,7 @@ async function viewRunDetail(id) {
           <textarea class="input" id="nt" rows="5" placeholder="What worked, what to change…">${esc(r.notes || '')}</textarea><button class="btn primary" id="sv">Save reflection</button>
           <div class="small muted">The plan and the block log are locked. Only the reflection can be edited.</div>`
           : `<p>${esc(r.notes || 'No notes.')}</p><div class="small muted">${r.attendance ? r.attendance + ' wrestlers' : ''} ${r.rating ? '★'.repeat(r.rating) : ''}</div>`}
+        ${r.absent?.length ? `<div class="small"><b>Not here:</b> ${r.absent.map(esc).join(', ')}</div>` : ''}
       </div>
     </div>
     <div class="section-title">Plan as it was run</div>${readOnlyPractice({ ...r.practice, levels: r.levels })}`;

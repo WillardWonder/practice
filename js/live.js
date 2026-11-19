@@ -10,6 +10,7 @@ import * as audio from './audio.js';
 import * as voice from './voice.js';
 import { store, can, isFirebase } from './store.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO } from './config.js';
+import { teamGoals, goalIsToday, goalText, practiceGoalSheet, publishTeamGoal } from './roster.js';
 
 let S = null;
 
@@ -79,6 +80,7 @@ function shellHTML() {
       <div class="row" style="gap:14px"><span class="sched" id="l-sched"></span><span class="clock" id="l-clock"></span></div>
     </div>
     ${room ? motto() : ''}
+    <div class="tgoal hidden" id="l-tgoal"></div>
     <div class="prog" id="l-prog"></div>
     <div class="stage" id="l-stage"></div>
     <div class="bottom" id="l-bottom">
@@ -116,6 +118,7 @@ async function showPrestart() {
     <h1 style="font-size:clamp(28px,5vw,56px);font-weight:900;font-style:italic;text-transform:uppercase">${esc(S.practice.title)}</h1>
     <div class="muted">${Math.round(total / 60)} min · ${S.practice.blocks.length} blocks · ends ~${new Date(Date.now() + (total + st.leadIn) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
     ${S.sites?.length ? `<label class="field" style="min-width:260px"><span class="tiny">Where is this practice?</span><select class="input" id="l-site">${S.sites.map(x => `<option value="${x.id}" ${x.id === (S.user.prefs?.site || '') ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : ''}
+    <button class="goalcard ${goalIsToday(S.practice) ? 'ok' : 'need'}" data-act="pgoal" id="l-goal" style="max-width:560px">${goalIsToday(S.practice) ? `<span class="tiny">🎯 Today's goal</span><span class="gt">${esc(goalText(S.practice.goal))}</span>` : `<span class="tiny">🎯 Set today's practice goal (required)</span><span class="gt">${S.practice.goal?.what ? 'Last goal: ' + esc(goalText(S.practice.goal)) : 'Tap to set it'}</span>`}</button>
     <button class="go" data-act="start">Start</button>
     <div class="small" id="l-voice" style="color:#93c5fd"></div>
     <div class="row wrap" style="justify-content:center;gap:8px;max-width:640px">
@@ -134,7 +137,19 @@ async function showPrestart() {
   prepareVoice(segsFor(S.practice, st.leadIn));
 }
 
+function needGoal(then) {
+  practiceGoalSheet(S.practice, async (goal) => {
+    S.practice.goal = goal;
+    try { await store.savePractice({ ...S.practice }); } catch (e) { /* coach may not own it: the goal still goes on the run */ }
+    const site = $('#l-site')?.value || S.user.prefs?.site;
+    publishTeamGoal(goal, site);
+    const g = $('#l-goal'); if (g) { g.className = 'goalcard ok'; g.innerHTML = `<span class="tiny">🎯 Today's goal</span><span class="gt">${esc(goalText(goal))}</span>`; }
+    then && then();
+  }, { reason: S.practice.goal?.what ? '' : 'Every practice needs a goal before it starts.' });
+}
+
 async function startRun() {
+  if (!goalIsToday(S.practice)) return needGoal(() => startRun());
   const ok = await audio.unlock(); audio.unlockVoice(); audio.keepAwake(true);
   if (!ok) toast('Sound is blocked on this device. Tap ⚙ and run a sound check.', 'error');
   if (!can(S.user, 'run')) return toast('Your account can view practices but not run them.', 'error');
@@ -148,7 +163,7 @@ async function startRun() {
     practiceId: S.practice.id, practiceTitle: S.practice.title, levels: S.practice.levels || [], date: S.practice.date || new Date().toISOString().slice(0, 10),
     practice: { title: S.practice.title, blocks: S.practice.blocks, startTime: S.practice.startTime || '', notes: S.practice.notes || '' },
     coachUid: S.user.uid, coachName: S.user.name, controllerUid: S.user.uid, controllerName: S.user.name,
-    site, siteName, status: 'live', startedAt: t, heartbeat: t, plannedSec: practiceDuration(S.practice), leadIn: st.leadIn, clock, version: 1,
+    goal: S.practice.goal || null, site, siteName, status: 'live', startedAt: t, heartbeat: t, plannedSec: practiceDuration(S.practice), leadIn: st.leadIn, clock, version: 1,
   };
   if (S.practice.dictation) store.saveExample({ practiceId: S.practice.id, transcript: S.practice.dictation, title: S.practice.title,
     blocks: S.practice.blocks.map(b => ({ type: b.type, title: b.title, category: b.category, minutes: Math.round(blockDuration(b) / 6) / 10, drillId: b.drillId || null,
@@ -193,6 +208,7 @@ function onRun(run, meta = {}) {
   if (run.status !== 'live') { S.clock.done = true; S.clock.running = false; S.clock.segIndex = S.segs.length; }
   paintBadge();
   paintTakeover();
+  paintTeamGoal(run.site);
   S.flowDirty = true;
   if (first && S.mode === 'remote' && run.status === 'live' && !audio.isUnlocked()) {
     const d = document.createElement('div'); d.className = 'prestart'; d.id = 'l-pre';
@@ -201,6 +217,13 @@ function onRun(run, meta = {}) {
     $('#live').appendChild(d);
   }
   loop(true);
+}
+
+async function paintTeamGoal(site) {
+  if (S.goalFor === (site || 'team')) return; S.goalFor = site || 'team';
+  try { const tg = await teamGoals(site || 'all'); const el = $('#l-tgoal'); if (!el) return;
+    el.innerHTML = tg.day ? `<span class="tiny">Team goal today</span> ${esc(tg.day)}` : tg.season ? `<span class="tiny">Season goal</span> ${esc(tg.season)}` : '';
+    el.classList.toggle('hidden', !(tg.day || tg.season)); } catch (e) {}
 }
 
 function paintBadge() {
@@ -259,6 +282,7 @@ function pickRoom(sites) {
 }
 
 async function idleRoom() {
+  if (S) { S.goalFor = null; paintTeamGoal(S.roomSite); }
   S.runId = null; S.run = null; S.segs = []; S.clock = newClock();
   const next = $('#l-next'); if (next) next.textContent = '—';
   $('#l-prog').innerHTML = ''; $('#l-sched').textContent = '';
@@ -494,6 +518,7 @@ async function command(cmd, arg) {
 function act(a, el) {
   if (!S) return;
   if (a === 'start') return startRun();
+  if (a === 'pgoal') return needGoal();
   if (a === 'resume') { $('#l-pre')?.remove(); audio.unlock().then(() => { audio.unlockVoice(); audio.keepAwake(true); reschedule(); }); return; }
   if (a === 'soundcheck') { audio.unlock().then(() => { applySettings(); audio.test(); audio.speak('Sound check. Champions are made today.'); }); return; }
   if (a === 'settings') return settingsModal();
@@ -676,7 +701,7 @@ function showSummary() {
       <div class="card stat"><div class="tiny">Skipped</div><div class="v" id="d-skipped">${r.log ? r.log.filter(l => l.skipped).length : '…'}</div></div>
     </div>
     <div class="card" style="text-align:left"><div class="stack">
-      <label class="field"><span class="tiny">How many wrestlers?</span><input class="input" id="d-att" inputmode="numeric" placeholder="e.g. 24"></label>
+      <div><div class="tiny" style="margin-bottom:6px">Who wasn't here? <span class="muted" id="d-attn"></span></div><div class="row wrap" style="gap:6px" id="d-roster"><span class="small muted">Loading roster…</span></div></div>
       <div><div class="tiny" style="margin-bottom:6px">How'd it go?</div><div class="row wrap" style="gap:6px">${[1, 2, 3, 4, 5].map(n => `<button class="chip" data-r="${n}">${'★'.repeat(n)}</button>`).join('')}</div></div>
       <label class="field"><span class="tiny">Coaching reflection</span><textarea class="input" id="d-notes" placeholder="What worked, what to change for next time…"></textarea></label>
     </div></div>
@@ -686,13 +711,35 @@ function showSummary() {
       <a class="btn lg ghost" href="#/">Home</a>
     </div></div>`;
   $('#live').appendChild(div);
+  // Attendance comes from today's check-in; tap a name to flip here / not here.
+  const day = new Date(); const dstr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+  let roster = [], absent = new Set(), recs = [];
+  Promise.all([store.list('athletes'), store.list('weighins', ['date', '==', dstr])]).then(([ath, w]) => {
+    recs = w; roster = ath.filter(a => a.active !== false && (!r.site || !a.site || a.site === r.site)).sort((x, y) => (x.last || '').localeCompare(y.last || ''));
+    w.filter(x => x.absent).forEach(x => absent.add(x.athleteId)); paintAtt();
+  }).catch(() => { const el = div.querySelector('#d-roster'); if (el) el.innerHTML = '<span class="small muted">Roster not available.</span>'; });
+  const paintAtt = () => {
+    const el = div.querySelector('#d-roster'); if (!el) return;
+    el.innerHTML = roster.length ? roster.map(a => `<button class="chip ${absent.has(a.id) ? 'absent' : ''}" data-ab="${a.id}">${absent.has(a.id) ? '✗ ' : ''}${esc(a.first)} ${esc(a.last)}</button>`).join('') : '<span class="small muted">No roster yet. Add girls under Roster.</span>';
+    div.querySelector('#d-attn').textContent = roster.length ? `${roster.length - absent.size} here · ${absent.size} not here` : '';
+    el.querySelectorAll('[data-ab]').forEach(b => b.onclick = (e) => { e.stopPropagation(); const id = b.dataset.ab; absent.has(id) ? absent.delete(id) : absent.add(id); paintAtt(); });
+  };
   let rating = 0;
   div.querySelectorAll('[data-r]').forEach(b => b.onclick = (e) => { e.stopPropagation(); rating = +b.dataset.r; div.querySelectorAll('[data-r]').forEach(x => x.classList.toggle('on', +x.dataset.r === rating)); });
   const save = div.querySelector('#d-save');
   save.onclick = async (e) => {
     e.stopPropagation(); save.disabled = true;
     try {
-      await store.updateRun(S.runId, { attendance: parseInt(div.querySelector('#d-att').value) || null, rating: rating || null, notes: div.querySelector('#d-notes').value.trim() });
+      const absentNames = roster.filter(a => absent.has(a.id)).map(a => `${a.first} ${a.last}`);
+      await store.updateRun(S.runId, { attendance: roster.length ? roster.length - absent.size : null, absent: absentNames, rating: rating || null, notes: div.querySelector('#d-notes').value.trim() });
+      // keep today's check-in in sync with what the coach confirmed here
+      for (const a of roster) {
+        const cur = recs.find(x => x.athleteId === a.id); const want = absent.has(a.id);
+        if (!!cur?.absent === want) continue;
+        const { id, updatedAt, by, ...rest } = cur || { athleteId: a.id, date: dstr };
+        const next = { ...rest, athleteId: a.id, date: dstr }; if (want) { next.absent = true; delete next.weight; } else delete next.absent;
+        store.put('weighins', `${dstr}_${a.id}`, next).catch(() => {});
+      }
       toast('Saved to history', 'success'); location.hash = `#/history/${S.runId}`;
     } catch (err) { save.disabled = false; toast('Could not save: ' + (err.code || err.message), 'error'); }
   };

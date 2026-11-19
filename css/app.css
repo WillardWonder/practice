@@ -417,3 +417,19 @@ details summary { cursor: pointer; padding: 6px 0; }
 .sz { min-width: 42px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: #0d1428; color: var(--text); font-weight: 800; cursor: pointer; }
 .sz.on { background: var(--blue); border-color: var(--blue); }
 .szt { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wrow.off { opacity: .55; }
+.wrow .btn.sm { flex: none; }
+@media (max-width: 560px) { .wrow { flex-wrap: wrap; } .wrow > .grow { flex-basis: 100%; } }
+.smart { display: grid; gap: 4px; }
+.smart .sm { font-size: 13px; color: #fca5a5; } .smart .sm.ok { color: #86efac; }
+.smart .sm b { display: inline-block; width: 20px; height: 20px; border-radius: 6px; background: #1f2937; text-align: center; margin-right: 6px; }
+.chip.word.on { background: var(--gold); border-color: var(--gold); color: #111; }
+.chip.absent { background: rgba(239,68,68,.18); border-color: #ef4444; color: #fecaca; }
+.live .tgoal { text-align: center; color: #e2e8f0; font-weight: 700; font-size: clamp(13px, 1.6vw, 24px); margin: 2px 0 0; }
+.live .tgoal .tiny { color: var(--gold); margin-right: 8px; }
+.goalcard { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 12px 14px; border-radius: 16px; cursor: pointer; margin: 10px 0 4px; color: var(--text); }
+.goalcard.need { background: rgba(250,204,21,.08); border: 2px dashed rgba(250,204,21,.6); }
+.goalcard.need .tiny { color: var(--gold); }
+.goalcard.ok { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.45); }
+.goalcard.ok .tiny { color: #86efac; }
+.goalcard .gt { font-weight: 700; }

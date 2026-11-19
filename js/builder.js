@@ -7,6 +7,7 @@ import { blockDuration, practiceDuration, fmtDur, parseDur, clockTimeLabel, minu
 import { store, canEditPractice } from './store.js';
 import { blockDetail, printPractice } from './print.js';
 import { openShare } from './share.js';
+import { practiceGoalSheet, goalIsToday, goalText, publishTeamGoal } from './roster.js';
 
 let P = null, root = null, user = null, drills = [], saveTimer = null, saveState = 'saved', sortable = null, showDetails = false;
 
@@ -43,6 +44,7 @@ function drawAll() {
       <a class="btn ghost icon" href="#/practices" aria-label="Back">←</a>
       <input class="title-input" id="b-title" value="${esc(P.title)}" placeholder="PRACTICE NAME" aria-label="Practice name">
     </div>
+    <div id="b-goal"></div>
     <div class="btot" id="b-tot"></div>
     <div class="catbar" id="b-bar" style="margin:8px 0 4px"></div>
     <button class="btn ghost sm" data-act="details" id="b-dtl" style="padding-left:0"></button>
@@ -54,7 +56,21 @@ function drawAll() {
     </div>`;
   $('#b-title').oninput = (e) => { P.title = e.target.value; scheduleSave(); };
   root.onclick = onClick;
-  drawDetails(); drawList();
+  drawDetails(); drawList(); drawGoal();
+}
+function drawGoal() {
+  const el = $('#b-goal'); if (!el) return;
+  const fresh = goalIsToday(P);
+  el.innerHTML = `<button class="goalcard ${fresh ? 'ok' : 'need'}" data-act="goal">
+    <span class="tiny">${fresh ? '🎯 Today\'s practice goal' : P.goal?.what ? `🎯 Goal is from ${new Date(P.goal.date + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}. Set today's (required)` : '🎯 Practice goal (required to run)'}</span>
+    <span class="gt">${fresh ? esc(goalText(P.goal)) : P.goal?.what ? `<span class="muted">${esc(goalText(P.goal))}</span>` : 'Tap to set the team\'s SMART goal for this practice'}</span></button>`;
+}
+function openGoal(then) {
+  practiceGoalSheet(P, async (goal) => {
+    P.goal = goal; await saveNow(true); drawGoal(); paintTotals();
+    publishTeamGoal(goal, user.prefs?.site);
+    then && then();
+  });
 }
 
 function paintTotals() {
@@ -128,7 +144,10 @@ async function onClick(e) {
   const b = P.blocks.find(x => x.id === a.closest('[data-bid]')?.dataset.bid);
   switch (act) {
     case 'add': return openAdd();
-    case 'run': if (!P.blocks.length) return toast('Add some drills first', 'error'); await saveNow(true); location.hash = `#/run/${P.id}`; return;
+    case 'run': if (!P.blocks.length) return toast('Add some drills first', 'error');
+      if (!goalIsToday(P)) return openGoal(async () => { location.hash = `#/run/${P.id}`; });
+      await saveNow(true); location.hash = `#/run/${P.id}`; return;
+    case 'goal': return openGoal();
     case 'edit': return openEdit(b);
     case 'dur-': case 'dur+': { const st = step(b.durationSec); b.durationSec = Math.max(15, b.durationSec + (act === 'dur+' ? st : -st)); return changed(); }
     case 'details': showDetails = !showDetails; return drawDetails();

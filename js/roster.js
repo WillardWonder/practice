@@ -23,7 +23,7 @@ export async function viewRoster(main, user) {
   main.innerHTML = '<div class="muted">Loading…</div>';
   const [{ athletes, sites }, weights] = await Promise.all([load(), loadWeights()]);
   const coach = can(user, 'edit');
-  const last = {}; weights.forEach(w => { if (!last[w.athleteId] || w.date > last[w.athleteId].date) last[w.athleteId] = w; });
+  const last = {}; weights.forEach(w => { if (typeof w.weight === 'number' && (!last[w.athleteId] || w.date > last[w.athleteId].date)) last[w.athleteId] = w; });
   if (rFilter.site === '' && user.prefs?.site && sites.some(s => s.id === user.prefs.site)) rFilter.site = user.prefs.site;
   const draw = () => {
     const q = rFilter.q.toLowerCase();
@@ -38,7 +38,7 @@ export async function viewRoster(main, user) {
     $$('[data-a]').forEach(b => b.onclick = () => coach && editAthlete(athletes.find(x => x.id === b.dataset.a), sites, weights, () => viewRoster(main, user)));
   };
   main.innerHTML = `<div class="page-head"><div><h1>Roster</h1><div class="muted small" id="rcount"></div></div>
-      ${coach ? `<div class="row wrap" style="gap:8px"><a class="btn go" href="#/weighin">⚖ Weigh-in</a><a class="btn" href="#/lineup">📷 Photo caption</a><a class="btn" href="#/sizes">👕 Sizes</a><a class="btn" href="#/paper">📰 Newspaper</a></div>` : ''}</div>
+      ${coach ? `<div class="row wrap" style="gap:8px"><a class="btn go" href="#/weighin">✓ Check-in &amp; weigh-in</a><a class="btn" href="#/lineup">📷 Photo caption</a><a class="btn" href="#/sizes">👕 Sizes</a><a class="btn" href="#/paper">📰 Newspaper</a></div>` : ''}</div>
     ${coach ? `<div class="row wrap" style="gap:8px;margin-bottom:12px"><button class="btn primary" id="addA">＋ Add wrestler</button><button class="btn" id="paste">📋 Paste a list</button><button class="btn ghost sm" id="csv">⬇ Export</button></div>` : ''}
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <input class="input" id="rq" placeholder="🔍 Search names…" value="${esc(rFilter.q)}" style="max-width:320px">
@@ -67,18 +67,25 @@ function athleteForm(a, sites, user) {
       <label class="field"><span class="tiny">Weight class</span><input class="input" id="aw" value="${esc(a?.weightClass || '')}" inputmode="numeric" placeholder="e.g. 120"></label>
       <label class="field"><span class="tiny">Level</span><select class="input" id="av"><option value=""></option>${LEVELS.map(l => `<option ${a?.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       ${sites.length ? `<label class="field"><span class="tiny">Building</span><select class="input" id="as"><option value=""></option>${sites.map(s => `<option value="${s.id}" ${site === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>` : ''}
-    </div></div>`;
+    </div>
+    <label class="field"><span class="tiny">Mid-season goal</span><input class="input" id="agm" value="${esc(a?.goalMid || '')}" placeholder="e.g. Escape from bottom in under 30 seconds by the holiday tournament"></label>
+    <label class="field"><span class="tiny">Season (long-term) goal</span><input class="input" id="agl" value="${esc(a?.goalLong || '')}" placeholder="e.g. Qualify for sectionals at 120"></label></div>`;
 }
 function readAthlete(w, base = {}) {
   const first = w.querySelector('#af').value.trim(), last = w.querySelector('#al').value.trim();
   if (!first || !last) { toast('First and last name, please', 'error'); return null; }
-  return { ...base, first, last, nick: w.querySelector('#an').value.trim(), grade: w.querySelector('#ag').value, weightClass: w.querySelector('#aw').value.trim(), level: w.querySelector('#av').value,
+  return { ...base, first, last, nick: w.querySelector('#an').value.trim(), grade: w.querySelector('#ag').value, weightClass: w.querySelector('#aw').value.trim(), goalMid: w.querySelector('#agm').value.trim(), goalLong: w.querySelector('#agl').value.trim(), level: w.querySelector('#av').value,
     site: w.querySelector('#as')?.value || base.site || '', active: base.active !== false };
 }
 
 function editAthlete(a, sites, weights, done) {
-  const hist = a ? weights.filter(w => w.athleteId === a.id).sort((x, y) => y.date.localeCompare(x.date)) : [];
+  const hist = a ? weights.filter(w => w.athleteId === a.id && typeof w.weight === 'number').sort((x, y) => y.date.localeCompare(x.date)) : [];
+  const goals = a ? weights.filter(w => w.athleteId === a.id && w.goal?.what).sort((x, y) => y.date.localeCompare(x.date)) : [];
+  const absent = a ? weights.filter(w => w.athleteId === a.id && w.absent).length : 0;
   modal({ title: a ? full(a) : 'Add wrestler', body: athleteForm(a, sites, store.user) + (a ? `
+      ${goals.length ? `<div class="tiny" style="margin:16px 0 6px">Practice goals · ${goals.filter(g => g.met === true).length} of ${goals.filter(g => g.met !== undefined).length} hit</div>
+        <div class="wh">${goals.slice(0, 15).map(g => `<div class="small">${g.met === true ? '✅' : g.met === false ? '⬜' : '·'} <b>${fmtDate(g.date)}</b> ${esc(goalText(g.goal))}</div>`).join('')}</div>` : ''}
+      ${absent ? `<div class="small muted" style="margin-top:8px">Missed ${absent} practice${absent === 1 ? '' : 's'}</div>` : ''}
       <div class="tiny" style="margin:16px 0 6px">Weigh-ins</div>
       ${hist.length ? `<div class="wh">${hist.slice(0, 30).map((w, i) => { const prev = hist[i + 1]; const d = prev ? Math.round((w.weight - prev.weight) * 10) / 10 : null;
         return `<div class="row between"><span>${fmtDate(w.date)}</span><span><b>${w.weight}</b> ${d ? `<span class="small ${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d}</span>` : ''}</span></div>`; }).join('')}</div>` : '<div class="small muted">None yet.</div>'}` : ''),
@@ -132,72 +139,174 @@ function pasteList(sites, user, done) {
 }
 
 function exportCsv(athletes, weights, sites) {
-  const dates = [...new Set(weights.map(w => w.date))].sort();
-  const by = {}; weights.forEach(w => { (by[w.athleteId] ||= {})[w.date] = w.weight; });
+  const W = weights.filter(w => typeof w.weight === 'number');
+  const dates = [...new Set(W.map(w => w.date))].sort();
+  const by = {}; W.forEach(w => { (by[w.athleteId] ||= {})[w.date] = w.weight; });
   const rows = [['last', 'first', 'goes_by', 'grade', 'level', 'building', 'active', ...dates]].concat(athletes.map(a =>
     [a.last, a.first, a.nick || '', a.grade || '', a.level || '', siteName(sites, a.site), a.active === false ? 'no' : 'yes', ...dates.map(d => by[a.id]?.[d] ?? '')]));
   download(`roster-${today()}.csv`, rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
 }
 
-// ---- Weigh-in ----------------------------------------------------------
+// ---- Daily check-in: attendance, weigh-in, practice goal -----------------
+// One record per girl per day (weighins/{date}_{athleteId}): weight, absent, goal.
+export const WORDS = ['Consistent', 'Persistent', 'Resilient', 'Relentless', 'Respectful'];
+const WORD_HINT = {
+  Consistent: 'same good habit every rep', Persistent: 'keep going after it doesn\'t work', Resilient: 'bounce back after a mistake',
+  Relentless: 'nonstop effort and pace', Respectful: 'partners, coaches, the room',
+};
+
+// SMART check for a goal that has to be achievable in ONE practice.
+export function smartCheck(g) {
+  const all = `${g.what || ''} ${g.measure || ''} ${g.when || ''}`.toLowerCase();
+  const big = /\b(state|conference|season|win (every|all)|pin everyone|never|always|perfect|every match|undefeated|lose \d+ ?(lb|pounds)|make weight|varsity)\b/.test(all);
+  return [
+    { k: 'R', label: 'Relevant: picked a focus word', ok: WORDS.includes(g.word) },
+    { k: 'S', label: 'Specific: says exactly what she\'ll do', ok: (g.what || '').trim().split(/\s+/).length >= 3 },
+    { k: 'M', label: 'Measurable: a number or a clear way to know', ok: /\d|\b(every|each|all|zero|no |none|twice|once|three|four|five|ten|times|reps|shots|goes)\b/.test((g.measure || '').toLowerCase()) },
+    { k: 'T', label: 'Time-bound: when in today\'s practice', ok: (g.when || '').trim().length >= 3 },
+    { k: 'A', label: 'Achievable today (not a season goal)', ok: !big && !!(g.what || '').trim() },
+  ];
+}
+export const goalText = (g) => g && g.what ? `${g.word ? g.word.toUpperCase() + ': ' : ''}${g.what.trim()}${g.measure ? ', ' + g.measure.trim() : ''}${g.when ? ', ' + g.when.trim() : ''}.` : '';
+
+export async function teamGoals(site) {
+  const all = await store.list('teamgoals').catch(() => []);
+  const key = site && site !== 'all' ? site : 'team';
+  return { day: all.find(x => x.id === `${key}-${today()}`)?.text || '', season: all.find(x => x.id === `${key}-season`)?.text || '', mid: all.find(x => x.id === `${key}-mid`)?.text || '', key };
+}
+
 let wDate = null, wSite = null;
 export async function viewWeighIn(main, user) {
   if (!can(user, 'edit')) { location.hash = '#/roster'; return; }
   main.innerHTML = '<div class="muted">Loading…</div>';
-  const [{ athletes, sites }, weights] = await Promise.all([load(), loadWeights()]);
+  const [{ athletes, sites }, recs] = await Promise.all([load(), loadWeights()]);
   wDate ||= today();
   if (wSite === null) wSite = sites.some(s => s.id === user.prefs?.site) ? user.prefs.site : 'all';
+  let tg = await teamGoals(wSite);
   const list = () => athletes.filter(a => a.active !== false && (wSite === 'all' || !sites.length || a.site === wSite));
-  const prevOf = (id) => weights.filter(w => w.athleteId === id && w.date < wDate).sort((x, y) => y.date.localeCompare(x.date))[0];
-  const todayOf = (id) => weights.find(w => w.athleteId === id && w.date === wDate);
-  const draw = () => {
-    const L = list();
-    $('#wl').innerHTML = L.length ? L.map((a, i) => { const p = prevOf(a.id), t = todayOf(a.id);
-      return `<div class="wrow" data-a="${a.id}"><div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)}</div>
-        <div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)})` : 'No previous weigh-in'}</div></div>
-        <span class="wd" id="d-${a.id}">${t && p ? diffHTML(t.weight - p.weight) : ''}</span>
-        <input class="input wi ${t ? 'saved' : ''}" inputmode="decimal" enterkeyhint="next" data-i="${i}" value="${t ? t.weight : ''}" placeholder="—" aria-label="Weight for ${esc(a.first)} ${esc(a.last)}"></div>`; }).join('')
-      : `<div class="empty">No active wrestlers${wSite !== 'all' ? ' in this building' : ''}. Add them on the <a href="#/roster">Roster</a>.</div>`;
-    count();
+  const recOf = (id, date = wDate) => recs.find(w => w.athleteId === id && w.date === date);
+  const prevW = (id) => recs.filter(w => w.athleteId === id && w.date < wDate && typeof w.weight === 'number').sort((x, y) => y.date.localeCompare(x.date))[0];
+  const prevGoal = (id) => recs.filter(w => w.athleteId === id && w.date < wDate && w.goal?.what).sort((x, y) => y.date.localeCompare(x.date))[0];
+  const saveRec = async (id, patch) => {
+    const cur = recOf(id) || { athleteId: id, date: wDate };
+    const next = { ...cur, ...patch }; delete next.id; delete next.updatedAt; delete next.by;
+    Object.keys(next).forEach(k => next[k] === undefined && delete next[k]);
+    const docId = `${wDate}_${id}`;
+    await store.put('weighins', docId, next);
+    const k = recs.findIndex(w => w.athleteId === id && w.date === wDate); const rec = { ...next, id: docId };
+    if (k >= 0) recs[k] = rec; else recs.push(rec);
+    return rec;
   };
-  const count = () => { const L = list(); const n = L.filter(a => todayOf(a.id)).length; $('#wc').textContent = `${n} of ${L.length} weighed`; };
-  main.innerHTML = `<div class="page-head"><div><h1>Weigh-in</h1><div class="muted small" id="wc"></div></div><a class="btn ghost sm" href="#/roster">← Roster</a></div>
+  const rowHTML = (a, i) => { const r = recOf(a.id), p = prevW(a.id), off = !!r?.absent;
+    return `<div class="wrow ${off ? 'off' : ''}" data-a="${a.id}">
+      <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)}</div>
+        <div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)})` : 'No previous weigh-in'}${r?.goal?.what ? ` · 🎯 <b style="color:#93c5fd">${esc(r.goal.word)}</b>` : ''}</div></div>
+      <button class="btn sm ${r?.goal?.what ? 'primary' : ''}" data-act="goal" ${off ? 'disabled' : ''}>🎯${r?.goal?.what ? '' : ' Goal'}</button>
+      <span class="wd" id="d-${a.id}">${typeof r?.weight === 'number' && p ? diffHTML(r.weight - p.weight) : ''}</span>
+      <input class="input wi ${typeof r?.weight === 'number' ? 'saved' : ''}" inputmode="decimal" enterkeyhint="next" data-i="${i}" value="${typeof r?.weight === 'number' ? r.weight : ''}" placeholder="—" ${off ? 'disabled' : ''} aria-label="Weight">
+      <button class="btn sm ${off ? 'danger' : 'ghost'}" data-act="absent" title="Mark not here">${off ? 'Not here' : '✓ Here'}</button></div>`; };
+  const draw = () => { const L = list(); $('#wl').innerHTML = L.length ? L.map(rowHTML).join('') : `<div class="empty">No active wrestlers${wSite !== 'all' ? ' in this building' : ''}. Add them on the <a href="#/roster">Roster</a>.</div>`; count(); };
+  const count = () => { const L = list(); const abs = L.filter(a => recOf(a.id)?.absent).length; const w = L.filter(a => typeof recOf(a.id)?.weight === 'number').length; const g = L.filter(a => recOf(a.id)?.goal?.what).length;
+    $('#wc').textContent = `${L.length - abs} here · ${abs} not here · ${w} weighed · ${g} goals set`; };
+  const goalsCard = () => `<div class="card stack" style="margin-bottom:12px"><div class="row between"><b>🏆 Team goals</b><button class="btn sm" data-act="tgedit">Edit</button></div>
+    <div class="small"><span class="tiny">Today</span><br>${esc(tg.day) || '<span class="muted">Not set yet</span>'}</div>
+    ${tg.mid ? `<div class="small"><span class="tiny">Mid-season</span><br>${esc(tg.mid)}</div>` : ''}
+    <div class="small"><span class="tiny">Season</span><br>${esc(tg.season) || '<span class="muted">Not set yet</span>'}</div></div>`;
+  main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="muted small" id="wc"></div></div><a class="btn ghost sm" href="#/roster">← Roster</a></div>
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <input type="date" class="input" id="wdt" value="${wDate}" style="width:auto">
       ${sites.length ? `<select class="input" id="wst" style="width:auto"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
-      <button class="btn ghost sm" id="wcsv">⬇ Export this day</button>
-    </div>
-    <div class="small muted" style="margin-bottom:8px">Type a weight and hit Enter. It saves and jumps to the next wrestler.</div>
+      <button class="btn ghost sm" id="wcsv">⬇ Export this day</button></div>
+    <div id="tgc">${goalsCard()}</div>
+    <div class="small muted" style="margin-bottom:8px">Everyone starts as here. Tap <b>✓ Here</b> to mark someone not here. Type a weight and hit Enter to jump to the next girl. Each girl taps 🎯 to set her goal for today.</div>
     <div class="plist" id="wl"></div>`;
   $('#wdt').onchange = (e) => { wDate = e.target.value || today(); draw(); };
-  $('#wst') && ($('#wst').onchange = (e) => { wSite = e.target.value; draw(); });
+  $('#wst') && ($('#wst').onchange = async (e) => { wSite = e.target.value; tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); draw(); });
   $('#wcsv').onclick = () => {
-    const rows = [['last', 'first', 'date', 'weight', 'change']].concat(list().map(a => { const t = todayOf(a.id), p = prevOf(a.id);
-      return [a.last, a.first, wDate, t?.weight ?? '', t && p ? Math.round((t.weight - p.weight) * 10) / 10 : '']; }));
-    download(`weigh-in-${wDate}.csv`, rows.map(r => r.map(v => `"${String(v ?? '')}"`).join(',')).join('\n'), 'text/csv');
+    const rows = [['last', 'first', 'date', 'here', 'weight', 'change', 'goal_word', 'goal', 'last_goal_met']].concat(list().map(a => { const r = recOf(a.id), p = prevW(a.id);
+      return [a.last, a.first, wDate, r?.absent ? 'no' : 'yes', r?.weight ?? '', typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : '', r?.goal?.word || '', goalText(r?.goal), r?.prevMet ?? '']; }));
+    download(`check-in-${wDate}.csv`, rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   };
-  const saveOne = async (inp) => {
+  const saveWeight = async (inp) => {
     const id = inp.closest('[data-a]').dataset.a; const v = inp.value.trim();
-    const docId = `${wDate}_${id}`; // one weigh-in per wrestler per day: re-saving overwrites
-    if (!v) { if (todayOf(id)) { await store.del('weighins', docId).catch(() => {}); const k = weights.findIndex(w => w.athleteId === id && w.date === wDate); if (k >= 0) weights.splice(k, 1); inp.classList.remove('saved'); count(); } return; }
+    if (!v) { if (typeof recOf(id)?.weight === 'number') { await saveRec(id, { weight: undefined }).catch(() => {}); inp.classList.remove('saved'); count(); } return; }
     const n = Math.round(parseFloat(v) * 10) / 10;
     if (!(n > 0 && n < 500)) { inp.classList.add('bad'); return toast('That weight looks off', 'error'); }
     inp.classList.remove('bad');
-    try {
-      await store.put('weighins', docId, { athleteId: id, date: wDate, weight: n });
-      const k = weights.findIndex(w => w.athleteId === id && w.date === wDate);
-      const rec = { id: docId, athleteId: id, date: wDate, weight: n }; if (k >= 0) weights[k] = rec; else weights.push(rec);
-      inp.classList.add('saved'); const p = prevOf(id); $(`#d-${id}`).innerHTML = p ? diffHTML(n - p.weight) : ''; count();
-    } catch (e) { toast('Not saved: ' + (e.code || e.message), 'error'); }
+    try { await saveRec(id, { weight: n }); inp.classList.add('saved'); const p = prevW(id); $(`#d-${id}`).innerHTML = p ? diffHTML(n - p.weight) : ''; count(); }
+    catch (e) { toast('Not saved: ' + (e.code || e.message), 'error'); }
   };
-  $('#wl').addEventListener('change', (e) => { if (e.target.matches('.wi')) saveOne(e.target); });
+  $('#wl').addEventListener('change', (e) => { if (e.target.matches('.wi')) saveWeight(e.target); });
   $('#wl').addEventListener('keydown', (e) => {
     if (!e.target.matches('.wi') || e.key !== 'Enter') return;
-    e.preventDefault(); const nx = $(`.wi[data-i="${+e.target.dataset.i + 1}"]`); if (nx) { nx.focus(); nx.select(); } else e.target.blur();
+    e.preventDefault(); let i = +e.target.dataset.i + 1, nx; while ((nx = $(`.wi[data-i="${i}"]`)) && nx.disabled) i++; if (nx) { nx.focus(); nx.select(); } else e.target.blur();
   });
+  main.onclick = async (e) => {
+    const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+    if (b.dataset.act === 'tgedit') return editTeamGoals(tg, async () => { tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); });
+    const row = b.closest('[data-a]'); if (!row) return;
+    const a = athletes.find(x => x.id === row.dataset.a);
+    if (b.dataset.act === 'absent') {
+      const off = !recOf(a.id)?.absent;
+      try { await saveRec(a.id, { absent: off || undefined, ...(off ? { weight: undefined } : {}) }); row.outerHTML = rowHTML(a, list().indexOf(a)); count(); } catch (err) { toast(err.code || err.message, 'error'); }
+    }
+    if (b.dataset.act === 'goal') goalSheet(a, recOf(a.id), prevGoal(a.id), tg, async (goal, prevMet, pg) => {
+      await saveRec(a.id, { goal, ...(prevMet !== null ? { prevMet } : {}) });
+      if (pg && prevMet !== null) { const { id, updatedAt, by, ...rest } = pg; await store.put('weighins', pg.id, { ...rest, met: prevMet }).catch(() => {}); pg.met = prevMet; }
+      const r = $(`[data-a="${a.id}"]`); if (r) r.outerHTML = rowHTML(a, list().indexOf(a)); count();
+    });
+  };
   draw();
 }
 const diffHTML = (d) => { d = Math.round(d * 10) / 10; return d === 0 ? '<span class="small muted">±0</span>' : `<span class="small ${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d}</span>`; };
+
+function goalSheet(a, rec, pg, tg, onSave) {
+  const g = { word: '', what: '', measure: '', when: '', ...(rec?.goal || {}) };
+  let met = pg && pg.met !== undefined ? pg.met : null;
+  const checks = () => smartCheck(g).map(c => `<div class="sm ${c.ok ? 'ok' : ''}"><b>${c.k}</b> ${esc(c.label)}</div>`).join('');
+  const m = modal({ title: `${a.first}'s goal for today`, body: `<div class="stack">
+    ${a.goalLong || a.goalMid ? `<div class="card" style="background:#0d1428"><div class="tiny">Your bigger goals</div>${a.goalMid ? `<div class="small" style="margin-top:4px"><b>Mid-season:</b> ${esc(a.goalMid)}</div>` : ''}${a.goalLong ? `<div class="small" style="margin-top:4px"><b>Season:</b> ${esc(a.goalLong)}</div>` : ''}</div>` : ''}
+    ${tg.day ? `<div class="small"><span class="tiny">Team goal today</span><br>${esc(tg.day)}</div>` : ''}
+    ${pg ? `<div class="card" style="background:#0d1428"><div class="tiny">Last goal (${fmtDate(pg.date)})</div><div class="small" style="margin:4px 0 8px">${esc(goalText(pg.goal))}</div>
+      <div class="row" style="gap:6px"><span class="small">Did you hit it?</span><button class="chip ${met === true ? 'on' : ''}" data-act="met" data-v="1">✓ Yes</button><button class="chip ${met === false ? 'on' : ''}" data-act="met" data-v="0">✗ Not yet</button></div></div>` : ''}
+    <div><div class="tiny" style="margin-bottom:6px">1. Pick your focus word</div><div class="row wrap" style="gap:6px">${WORDS.map(w => `<button class="chip word ${g.word === w ? 'on' : ''}" data-act="word" data-w="${w}">${w}</button>`).join('')}</div>
+      <div class="small muted" id="whint" style="margin-top:4px">${g.word ? esc(WORD_HINT[g.word]) : ''}</div></div>
+    <label class="field"><span class="tiny">2. What will you do? (be specific)</span><input class="input" data-g="what" value="${esc(g.what)}" placeholder="e.g. Finish my single leg by running the pipe"></label>
+    <label class="field"><span class="tiny">3. How many, or how will you know?</span><input class="input" data-g="measure" value="${esc(g.measure)}" placeholder="e.g. at least 5 times, or every rep"></label>
+    <label class="field"><span class="tiny">4. When in practice?</span><input class="input" data-g="when" value="${esc(g.when)}" placeholder="e.g. during live goes today"></label>
+    <div class="card" style="background:#0d1428"><div class="tiny" style="margin-bottom:6px">Your goal</div><div id="gprev" style="font-weight:700">${esc(goalText(g)) || '<span class="muted">Fill in the steps above</span>'}</div>
+      <div class="smart" id="gchk" style="margin-top:10px">${checks()}</div></div></div>`,
+    footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary lg" data-act="save">Save goal</button>`,
+    onAction: async (act, el, w, close) => {
+      if (act === 'word') { g.word = el.dataset.w; w.querySelectorAll('.chip.word').forEach(c => c.classList.toggle('on', c === el)); w.querySelector('#whint').textContent = WORD_HINT[g.word]; refresh(); }
+      if (act === 'met') { met = el.dataset.v === '1'; w.querySelectorAll('[data-act=met]').forEach(c => c.classList.toggle('on', c === el)); }
+      if (act === 'save') {
+        const bad = smartCheck(g).filter(c => !c.ok);
+        if (bad.length) return toast('Not a SMART goal yet: ' + bad.map(c => c.label.split(':')[0]).join(', '), 'error');
+        try { await onSave({ word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim() }, met, pg); close(); toast('Goal saved', 'success'); } catch (e) { toast(e.code || e.message, 'error'); }
+      }
+    } });
+  const refresh = () => { m.el.querySelector('#gprev').textContent = goalText(g) || 'Fill in the steps above'; m.el.querySelector('#gchk').innerHTML = checks(); };
+  m.el.querySelector('.mb').addEventListener('input', (e) => { if (e.target.dataset.g) { g[e.target.dataset.g] = e.target.value; refresh(); } });
+}
+
+function editTeamGoals(tg, done) {
+  modal({ title: 'Team goals', body: `<div class="stack">
+    <label class="field"><span class="tiny">Today (${fmtDate(today())})</span><textarea class="input" id="tgd" rows="2" placeholder="e.g. RELENTLESS: every girl finishes 10 shots in live goes, no one stops on the whistle">${esc(tg.day)}</textarea></label>
+    <label class="field"><span class="tiny">Mid-season</span><textarea class="input" id="tgm" rows="2" placeholder="e.g. Every varsity girl wrestles at least 10 matches by the holiday tournament">${esc(tg.mid)}</textarea></label>
+    <label class="field"><span class="tiny">Season</span><textarea class="input" id="tgs" rows="2" placeholder="e.g. Qualify 5 girls for sectionals">${esc(tg.season)}</textarea></label>
+    <div class="small muted">These show on the check-in screen, on each girl's goal sheet, and on the room TV.</div></div>`,
+    footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save">Save</button>`,
+    onAction: async (act, el, w, close) => {
+      if (act !== 'save') return;
+      try {
+        await store.put('teamgoals', `${tg.key}-${today()}`, { text: w.querySelector('#tgd').value.trim(), date: today() });
+        await store.put('teamgoals', `${tg.key}-mid`, { text: w.querySelector('#tgm').value.trim() });
+        await store.put('teamgoals', `${tg.key}-season`, { text: w.querySelector('#tgs').value.trim() });
+        close(); toast('Team goals saved', 'success'); done();
+      } catch (e) { toast(e.code || e.message, 'error'); }
+    } });
+}
 
 // ---- Photo caption (team picture lineup) ----------------------------------
 const ROW_NAMES = (n) => n === 1 ? ['From left'] : Array.from({ length: n }, (_, i) => i === 0 ? 'Front row' : i === n - 1 ? 'Back row' : ['Second row', 'Third row', 'Fourth row'][i - 1]);
@@ -375,4 +484,44 @@ export async function viewPaper(main, user) {
   });
   $('#pcopy').onclick = async () => { try { await navigator.clipboard.writeText(text()); toast('Copied. Paste it into your email to Tina.', 'success'); } catch (e) { prompt('Copy:', text()); } };
   $('#pmail').onclick = (e) => { e.preventDefault(); location.href = `mailto:tscott@mmclocal.com?subject=${encodeURIComponent('Winter Sports Profile - ' + (P.sport || 'Girls Wrestling'))}&body=${encodeURIComponent(text().slice(0, 1800))}`; };
+}
+
+
+// ---- Practice goal (required to run) ---------------------------------------
+export const goalIsToday = (p) => !!(p?.goal?.what && p.goal.date === today());
+// Opens the goal sheet for a practice. onSave(goal) gets {word, what, measure, when, date}.
+export function practiceGoalSheet(p, onSave, { reason = '' } = {}) {
+  const old = p.goal?.what ? p.goal : null;
+  const g = { word: '', what: '', measure: '', when: '', ...(goalIsToday(p) ? p.goal : {}) };
+  const checks = () => smartCheck(g).map(c => `<div class="sm ${c.ok ? 'ok' : ''}"><b>${c.k}</b> ${esc(c.label.replace('she', 'the team').replace('She', 'The team'))}</div>`).join('');
+  const m = modal({ title: '🎯 Today\'s practice goal', body: `<div class="stack">
+    ${reason ? `<div class="small" style="color:#fde68a">${esc(reason)}</div>` : ''}
+    ${old && !goalIsToday(p) ? `<div class="card" style="background:#0d1428"><div class="tiny">This practice's goal from ${fmtDate(old.date)}</div><div style="margin:6px 0 8px;font-weight:700">${esc(goalText(old))}</div>
+      <div class="small muted" style="margin-bottom:8px">It's a new day, so set today's goal. Reuse it or change it.</div><button class="btn sm" data-act="reuse">↺ Use it again for today</button></div>` : ''}
+    <div><div class="tiny" style="margin-bottom:6px">1. Focus word for the team</div><div class="row wrap" style="gap:6px">${WORDS.map(w => `<button class="chip word ${g.word === w ? 'on' : ''}" data-act="word" data-w="${w}">${w}</button>`).join('')}</div></div>
+    <label class="field"><span class="tiny">2. What will the team do?</span><input class="input" data-g="what" value="${esc(g.what)}" placeholder="e.g. Every girl gets off bottom with a stand-up"></label>
+    <label class="field"><span class="tiny">3. How many, or how will we know?</span><input class="input" data-g="measure" value="${esc(g.measure)}" placeholder="e.g. within 30 seconds, 5 times each"></label>
+    <label class="field"><span class="tiny">4. When in practice?</span><input class="input" data-g="when" value="${esc(g.when)}" placeholder="e.g. in the bottom-position live goes"></label>
+    <div class="card" style="background:#0d1428"><div class="tiny" style="margin-bottom:6px">Today's goal</div><div id="gprev" style="font-weight:700">${esc(goalText(g)) || '<span class="muted">Fill in the steps above</span>'}</div>
+      <div class="smart" id="gchk" style="margin-top:10px">${checks()}</div></div></div>`,
+    footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary lg" data-act="save">Set today's goal</button>`,
+    onAction: async (act, el, w, close) => {
+      const sync = () => { w.querySelectorAll('[data-g]').forEach(i => { i.value = g[i.dataset.g] || ''; }); w.querySelectorAll('.chip.word').forEach(c => c.classList.toggle('on', c.dataset.w === g.word)); refresh(); };
+      if (act === 'word') { g.word = el.dataset.w; sync(); }
+      if (act === 'reuse') { Object.assign(g, { word: old.word, what: old.what, measure: old.measure, when: old.when }); sync(); }
+      if (act === 'save') {
+        const bad = smartCheck(g).filter(c => !c.ok);
+        if (bad.length) return toast('Not a SMART goal yet: ' + bad.map(c => c.label.split(':')[0]).join(', '), 'error');
+        const goal = { word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim(), date: today() };
+        el.disabled = true;
+        try { await onSave(goal); close(); toast('Goal set for today', 'success'); } catch (e) { el.disabled = false; toast(e.code || e.message, 'error'); }
+      }
+    } });
+  const refresh = () => { m.el.querySelector('#gprev').textContent = goalText(g) || 'Fill in the steps above'; m.el.querySelector('#gchk').innerHTML = checks(); };
+  m.el.querySelector('.mb').addEventListener('input', (e) => { if (e.target.dataset.g) { g[e.target.dataset.g] = e.target.value; refresh(); } });
+}
+// Saving a practice goal also makes it today's team goal (check-in screen + TV).
+export async function publishTeamGoal(goal, site) {
+  const key = site && site !== 'all' ? site : 'team';
+  await store.put('teamgoals', `${key}-${today()}`, { text: goalText(goal), date: today(), word: goal.word }).catch(() => {});
 }
