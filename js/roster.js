@@ -369,20 +369,36 @@ function editTeamGoals(tg, done) {
 // ---- Team photo: shrunk to ~300 KB and saved in Firestore (lineupphotos/{id}),
 // so every coach can open it and keep tagging on any device. Tags live in lineups/{id}.
 const lineupId = (site) => `photo-${site && site !== 'all' ? site : 'team'}`;
+// Tries four ways to read a photo so any phone's picture works (big Android photos,
+// rotated photos, cloud-gallery files, blob URLs blocked, Safari HEIC).
 async function decodeImage(file) {
-  // 1) createImageBitmap handles most formats and respects phone rotation
-  if (window.createImageBitmap) { try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) {} }
-  // 2) plain <img> (Safari can open iPhone HEIC photos this way)
+  const errors = [];
+  if (!file || !file.size) throw new Error('The photo came through empty. If it\'s in Google Photos, download it to the phone first, or take a screenshot of it.');
+  if (window.createImageBitmap) {
+    // 1) decode already shrunk: memory-safe for 50-200 MP phone photos
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image', resizeWidth: 1600, resizeQuality: 'high' }); } catch (e) { errors.push('bitmap-resize: ' + (e.name || e.message)); }
+    // 2) full-size decode
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) { errors.push('bitmap: ' + (e.name || e.message)); }
+  }
+  const viaImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => (i.naturalWidth ? res(i) : rej(new Error('empty'))); i.onerror = () => rej(new Error('img load failed')); i.src = src; });
+  // 3) blob URL into <img>
   const url = URL.createObjectURL(file);
-  try { return await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('decode')); i.src = url; }); }
-  finally { setTimeout(() => URL.revokeObjectURL(url), 5000); }
+  try { return await viaImg(url); } catch (e) { errors.push('img/blob: ' + e.message); } finally { setTimeout(() => URL.revokeObjectURL(url), 10000); }
+  // 4) read the bytes as a data URL into <img> (works when blob URLs are blocked)
+  try {
+    const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error || new Error('read failed')); r.readAsDataURL(file); });
+    return await viaImg(dataUrl);
+  } catch (e) { errors.push('img/data: ' + (e.name || e.message)); }
+  const err = new Error('decode'); err.details = `${file.type || 'unknown type'}, ${Math.round(file.size / 1024)} KB · ${errors.join(' | ')}`; throw err;
 }
 async function shrinkPhoto(file, maxW = 1600, q = 0.78) {
   let img;
   try { img = await decodeImage(file); }
   catch (e) {
+    if (e.message !== 'decode') throw e;
     const heic = /heic|heif/i.test(file.type || '') || /\.(heic|heif)$/i.test(file.name || '');
-    throw new Error(heic ? "This phone can't open iPhone HEIC photos. On the iPhone, open the photo, tap Share, then Save to Files as JPEG, or just take a screenshot of the photo and upload that." : "Couldn't open that image. Try a JPG or PNG, or upload a screenshot of the photo.");
+    const err = new Error((heic ? "This browser can't open HEIC photos. Save the photo as JPG, or upload a screenshot of it." : "Couldn't open that image. Upload a screenshot of the photo instead, which always works.") + (e.details ? `\n\nDetails for Coach Josh: ${e.details}` : ''));
+    throw err;
   }
   let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
   if (!w || !h) throw new Error("Couldn't read the photo size. Try a screenshot of the photo.");
@@ -511,7 +527,7 @@ export async function viewLineup(main, user) {
     try { const p = await shrinkPhoto(f); await photoSave(lineupId(L.site), p); showPhoto(p); toast('Photo saved. Tap it to tag faces.', 'success'); openFull(); }
     catch (err) { console.error(err); $('#lupl').textContent = photo ? 'Replace photo' : 'Upload photo';
       const msg = err?.code === 'permission-denied' ? 'Permission denied. The photo section of the rules isn\'t published yet.' : err?.code ? err.code + ': ' + (err.message || '') : (err?.message || String(err));
-      modal({ title: 'Photo not saved', body: `<p>${esc(msg)}</p>`, footer: '<button class="btn primary" data-act="close">OK</button>' }); }
+      modal({ title: 'Photo not saved', body: `<p style="white-space:pre-wrap">${esc(msg)}</p>`, footer: '<button class="btn primary" data-act="close">OK</button>' }); }
     e.target.value = '';
   };
   $('#lphdel').onclick = async () => { if (!(await confirmBox('Remove the photo?', 'Removes the photo and its name tags for every coach. Names stay on the roster.', 'Remove'))) return;
