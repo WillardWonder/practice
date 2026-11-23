@@ -369,14 +369,31 @@ function editTeamGoals(tg, done) {
 // ---- Team photo: shrunk to ~300 KB and saved in Firestore (lineupphotos/{id}),
 // so every coach can open it and keep tagging on any device. Tags live in lineups/{id}.
 const lineupId = (site) => `photo-${site && site !== 'all' ? site : 'team'}`;
-async function shrinkPhoto(file, maxW = 1600, q = 0.78) {
+async function decodeImage(file) {
+  // 1) createImageBitmap handles most formats and respects phone rotation
+  if (window.createImageBitmap) { try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) {} }
+  // 2) plain <img> (Safari can open iPhone HEIC photos this way)
   const url = URL.createObjectURL(file);
-  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-  let w = img.naturalWidth, h = img.naturalHeight; const k = Math.min(1, maxW / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
-  const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
-  URL.revokeObjectURL(url);
+  try { return await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('decode')); i.src = url; }); }
+  finally { setTimeout(() => URL.revokeObjectURL(url), 5000); }
+}
+async function shrinkPhoto(file, maxW = 1600, q = 0.78) {
+  let img;
+  try { img = await decodeImage(file); }
+  catch (e) {
+    const heic = /heic|heif/i.test(file.type || '') || /\.(heic|heif)$/i.test(file.name || '');
+    throw new Error(heic ? "This phone can't open iPhone HEIC photos. On the iPhone, open the photo, tap Share, then Save to Files as JPEG, or just take a screenshot of the photo and upload that." : "Couldn't open that image. Try a JPG or PNG, or upload a screenshot of the photo.");
+  }
+  let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  if (!w || !h) throw new Error("Couldn't read the photo size. Try a screenshot of the photo.");
+  const k = Math.min(1, maxW / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'); if (!ctx) throw new Error('This browser blocked the photo. Try Chrome or Safari.');
+  ctx.drawImage(img, 0, 0, w, h);
+  if (img.close) img.close();
   let data = c.toDataURL('image/jpeg', q);
-  while (data.length > 900000 && q > 0.4) { q -= 0.1; data = c.toDataURL('image/jpeg', q); }
+  while (data.length > 900000 && q > 0.35) { q -= 0.1; data = c.toDataURL('image/jpeg', q); }
+  if (data.length > 950000) { const c2 = document.createElement('canvas'); c2.width = Math.round(w * 0.7); c2.height = Math.round(h * 0.7); c2.getContext('2d').drawImage(c, 0, 0, c2.width, c2.height); data = c2.toDataURL('image/jpeg', 0.7); w = c2.width; h = c2.height; }
   return { data, w, h };
 }
 async function photoLoad(id) { try { const r = (await store.list('lineupphotos')).find(x => x.id === id); return r?.data ? r : null; } catch (e) { return null; } }
@@ -492,7 +509,9 @@ export async function viewLineup(main, user) {
     const f = e.target.files[0]; if (!f) return;
     $('#lupl').textContent = 'Uploading…';
     try { const p = await shrinkPhoto(f); await photoSave(lineupId(L.site), p); showPhoto(p); toast('Photo saved. Tap it to tag faces.', 'success'); openFull(); }
-    catch (err) { $('#lupl').textContent = 'Upload photo'; toast('Photo not saved: ' + (err.code || err.message), 'error'); }
+    catch (err) { console.error(err); $('#lupl').textContent = photo ? 'Replace photo' : 'Upload photo';
+      const msg = err?.code === 'permission-denied' ? 'Permission denied. The photo section of the rules isn\'t published yet.' : err?.code ? err.code + ': ' + (err.message || '') : (err?.message || String(err));
+      modal({ title: 'Photo not saved', body: `<p>${esc(msg)}</p>`, footer: '<button class="btn primary" data-act="close">OK</button>' }); }
     e.target.value = '';
   };
   $('#lphdel').onclick = async () => { if (!(await confirmBox('Remove the photo?', 'Removes the photo and its name tags for every coach. Names stay on the roster.', 'Remove'))) return;
