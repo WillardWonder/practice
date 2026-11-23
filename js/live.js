@@ -379,6 +379,11 @@ function reschedule() {
     const d = segDur(S.segs, S.clock, i) * 1000;
     const startIn = endIn - d;
     if (S.segs[i].switchAtHalf) ev.push({ inMs: startIn + d / 2, kind: 'switch' });
+    // Optional interval beep during drills (every 15/30/60 s), skipping the last few seconds before the countdown
+    const every = (st.tickEvery || 0) * 1000;
+    if (every && S.segs[i].kind === 'work' && !S.segs[i].seriesStep) {
+      for (let t = every; t < d - 4500; t += every) if (!(S.segs[i].switchAtHalf && Math.abs(t - d / 2) < 2000)) ev.push({ inMs: startIn + t, kind: 'tick' });
+    }
     if (S.segs[i].seriesStep) ev.push({ inMs: endIn, kind: 'beepHigh' }); // routine: quick beep between motions, voice calls the next one
     else {
       if (st.countdown && d >= 10000) [3, 2, 1].forEach(n => ev.push({ inMs: endIn - n * 1000, kind: n === 1 ? 'beepHigh' : 'beep' }));
@@ -611,6 +616,7 @@ export function settingsModal(onDone) {
     <div><div class="tiny" style="margin-bottom:6px">Horn sound</div><div class="seg" style="display:flex">${[['buzzer', 'Gym buzzer (loudest)'], ['horn', 'Air horn'], ['whistle', 'Whistle']].map(([v, l]) => `<button class="${st.style === v ? 'on' : ''}" data-act="style" data-v="${v}">${l}</button>`).join('')}</div></div>
     <label class="field"><span class="tiny">Volume boost</span><input type="range" min="0" max="1" step="0.05" value="${st.volume}" id="s-vol" style="width:100%"></label>
     ${tg('countdown', '3-2-1 countdown beeps')}
+    <div><div class="tiny" style="margin-bottom:6px">Beep during every drill</div><div class="seg" style="display:flex">${[[0, 'Off'], [15, 'Every 15s'], [30, 'Every 30s'], [60, 'Every 60s']].map(([v, l]) => `<button class="${(st.tickEvery || 0) === v ? 'on' : ''}" data-act="tick" data-v="${v}">${l}</button>`).join('')}</div></div>
     ${tg('voice', 'Voice announcements', 'Says each drill, "Rest", "Switch!", "Rotate!"')}
     <div><div class="tiny" style="margin-bottom:6px">Voice</div><div class="seg" style="display:flex">${[['ai', '🎙 Natural coach voice'], ['device', 'Device voice']].map(([v, l]) => `<button class="${(st.voiceMode || 'ai') === v ? 'on' : ''}" data-act="vmode" data-v="${v}">${l}</button>`).join('')}</div></div>
     <div id="s-ai" class="${(st.voiceMode || 'ai') === 'ai' ? '' : 'hidden'}">
@@ -633,6 +639,7 @@ export function settingsModal(onDone) {
       if (a === 't') { const k = el.dataset.k; const v = !getSettings()[k]; setSettings({ [k]: v }); el.classList.toggle('on', v); }
       if (a === 'style') { setSettings({ style: el.dataset.v }); w.querySelectorAll('[data-act=style]').forEach(b => b.classList.toggle('on', b === el)); applySettings(); audio.unlock().then(() => audio.schedule([{ inMs: 0, kind: 'horn' }])); }
       if (a === 'test') audio.unlock().then(() => { applySettings(); audio.test(); });
+      if (a === 'tick') { setSettings({ tickEvery: +el.dataset.v }); w.querySelectorAll('[data-act=tick]').forEach(b => b.classList.toggle('on', b === el)); if (+el.dataset.v) audio.unlock().then(() => audio.schedule([{ inMs: 0, kind: 'tick' }])); }
       if (a === 'vmode') { setSettings({ voiceMode: el.dataset.v }); w.querySelectorAll('[data-act=vmode]').forEach(b => b.classList.toggle('on', b === el)); w.querySelector('#s-ai').classList.toggle('hidden', el.dataset.v !== 'ai'); if (el.dataset.v === 'device') audio.unlock().then(() => audio.speak('Sound check. Champions are made today.')); }
       if (a === 'aiv' || a === 'ais') { setSettings(a === 'aiv' ? { aiVoice: el.dataset.v } : { aiStyle: el.dataset.v }); w.querySelectorAll(`[data-act=${a}]`).forEach(b => b.classList.toggle('on', b === el)); }
       if (a === 'aiv' || a === 'ais' || a === 'vprev') { const s2 = getSettings(); el.disabled = true; voice.preview(s2.aiVoice, s2.aiStyle).catch(e => toast(e.message, 'error')).finally(() => { el.disabled = false; }); if (S && S.segs.length) prepareVoice(S.segs); }

@@ -126,6 +126,12 @@ function beepAt(t, high = false) {
   osc(t, 0.16, high ? 3900 : 3000, 'square', 0.2);
 }
 
+// Interval beep (e.g. every 30 seconds): short, a bit softer than the countdown
+function tickAt(t) {
+  osc(t, 0.12, 2200, 'square', 0.3);
+  osc(t + 0.16, 0.12, 2200, 'square', 0.3);
+}
+
 function doubleWhistleAt(t) {
   osc(t, 0.25, 3000, 'square', 0.5, { lfo: 30, lfoDepth: 250 });
   osc(t + 0.35, 0.25, 3000, 'square', 0.5, { lfo: 30, lfoDepth: 250 });
@@ -154,6 +160,7 @@ export function schedule(events) {
     else if (e.kind === 'beep') beepAt(at);
     else if (e.kind === 'beepHigh') beepAt(at, true);
     else if (e.kind === 'switch') doubleWhistleAt(at);
+    else if (e.kind === 'tick') tickAt(at);
   }
 }
 
