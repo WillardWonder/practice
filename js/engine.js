@@ -19,7 +19,7 @@ export const practiceDuration = (p) => (p.blocks || []).reduce((s, b) => s + blo
 export function compile(practice) {
   const segs = [];
   (practice.blocks || []).forEach((b, bi) => {
-    const base = { blockIndex: bi, blockId: b.id, category: b.category, description: b.description || '', cues: b.cues || [] };
+    const base = { blockIndex: bi, blockId: b.id, category: b.category, description: b.description || '', cues: b.cues || [], beepEvery: b.beep30 ? 30 : 0 };
     if (b.type === 'drill') {
       segs.push({ ...base, kind: 'work', title: b.title, durationSec: b.durationSec, switchAtHalf: !!b.switchAtHalf,
         holdAtEnd: !!b.holdAtEnd, say: PHRASES.start(b.title) });

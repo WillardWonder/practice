@@ -113,7 +113,7 @@ function drawDetails() {
 
 function rowHTML(b, start) {
   const fixed = b.type === 'drill' || b.type === 'rest' || b.type === 'personal';
-  const sub = b.type === 'drill' ? [b.description, b.holdAtEnd ? 'coach-paced' : '', b.switchAtHalf ? 'switch at half' : ''].filter(Boolean).join(' · ') || b.category : blockDetail(b);
+  const sub = (b.type === 'drill' ? [b.description, b.holdAtEnd ? 'coach-paced' : '', b.switchAtHalf ? 'switch at half' : '', b.beep30 ? 'beep every 30s' : ''].filter(Boolean).join(' · ') || b.category : blockDetail(b) + (b.beep30 ? ' · beep every 30s' : ''));
   return `<div class="rb" data-bid="${b.id}">
     <div class="stripe" style="background:${catColor(b.category)}"></div>
     <div class="rb-main" data-act="edit">
@@ -232,6 +232,7 @@ function editBody(b) {
     <label class="field"><span class="tiny">What to show on the big screen</span><input class="input" data-f="description" value="${esc(b.description)}" placeholder="e.g. Elbow tie, underhooks"></label>
     ${toggle('switchAtHalf', b.switchAtHalf, 'Call "Switch!" at halfway', 'For partner or top/bottom swaps')}
     ${toggle('holdAtEnd', b.holdAtEnd, 'Coach-paced', 'Clock waits at 0:00 until you tap Next')}
+    ${toggle('beep30', b.beep30, 'Beep every 30 seconds', 'A quick double beep every 30 seconds during this block')}
     <details><summary class="small muted">More options</summary><div class="stack" style="margin-top:10px">
       <label class="field"><span class="tiny">Category</span>${catPick(b.category)}</label>
       <label class="field"><span class="tiny">Coaching cues (one per line)</span><textarea class="input" data-f="cues" rows="2">${esc((b.cues || []).join('\n'))}</textarea></label>
@@ -243,6 +244,7 @@ function editBody(b) {
     return `<div class="stack">
     <div class="small muted">Everyone works at the same time, each wrestler at her own station. The room screen shows every station with the names under it.</div>
     <div><div class="tiny">How long</div>${stepper('durationSec', b.durationSec)}</div>
+    ${toggle('beep30', b.beep30, 'Beep every 30 seconds', 'A quick double beep every 30 seconds during this block')}
     ${b.stations.map((st, si) => `<div class="pst" data-si="${si}">
       <div class="row" style="gap:6px"><button class="btn grow st-pick" data-act="pst-pick" style="justify-content:flex-start">${esc(st.title)}</button>${b.stations.length > 1 ? '<button class="btn ghost icon" data-act="pst-del" aria-label="Remove station">✕</button>' : ''}</div>
       <input class="input" data-pf2="description" value="${esc(st.description || '')}" placeholder="What she works on here (optional)" style="margin-top:6px">
@@ -269,7 +271,8 @@ function editBody(b) {
     </div>
     <div class="small muted">Total ${clock(blockDuration(b))}</div>
     <label class="field"><span class="tiny">Situation / description</span><input class="input" data-f="description" value="${esc(b.description)}" placeholder="e.g. Start in on a single"></label>
-    ${toggle('switchAtHalf', b.switchAtHalf, 'Call "Switch!" halfway through each go')}</div>`;
+    ${toggle('switchAtHalf', b.switchAtHalf, 'Call "Switch!" halfway through each go')}
+    ${toggle('beep30', b.beep30, 'Beep every 30 seconds', 'A quick double beep every 30 seconds during this block')}</div>`;
   const n = b.stations.length;
   return `<div class="stack">
     <div class="seg" style="display:flex"><button class="${b.mode !== 'split' ? 'on' : ''}" data-act="mode" data-mode="rotate">🔄 Groups rotate</button><button class="${b.mode === 'split' ? 'on' : ''}" data-act="mode" data-mode="split">✂ Groups stay put</button></div>
@@ -278,6 +281,7 @@ function editBody(b) {
       ${b.mode === 'split' ? '' : `<div><div class="tiny">Time to rotate</div>${stepper('transitionSec', b.transitionSec || 0, 0)}</div>`}
     </div>
     <div class="small muted">${n} groups · total ${clock(blockDuration(b))}</div>
+    ${toggle('beep30', b.beep30, 'Beep every 30 seconds', 'A quick double beep every 30 seconds during this block')}
     <div class="tiny">Stations (letter = the group that starts there)</div>
     ${b.stations.map((s, si) => `<div class="st" data-si="${si}"><b>${GROUP(si)}</b><button class="btn grow st-pick" data-act="st-pick" style="justify-content:flex-start">${esc(s.title)}</button>${n > 2 ? `<button class="btn ghost icon" data-act="st-del" aria-label="Remove">✕</button>` : ''}</div>`).join('')}
     ${n < 8 ? '<button class="btn" data-act="st-add">＋ Add a group / station</button>' : ''}
