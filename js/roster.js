@@ -366,6 +366,25 @@ function editTeamGoals(tg, done) {
 }
 
 // ---- Photo caption (team picture lineup) ----------------------------------
+// ---- Team photo kept on this device only (IndexedDB), never uploaded ----
+function photoDb() { return new Promise((res) => { if (!('indexedDB' in window)) return res(null); const r = indexedDB.open('practice-photo', 1); r.onupgradeneeded = () => r.result.createObjectStore('img'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); }
+async function photoGet() { const db = await photoDb(); if (!db) return null; return new Promise(res => { const t = db.transaction('img').objectStore('img').get('lineup'); t.onsuccess = () => res(t.result || null); t.onerror = () => res(null); }); }
+async function photoPut(blob) { const db = await photoDb(); if (!db) return; return new Promise(res => { const t = db.transaction('img', 'readwrite'); t.objectStore('img').put(blob, 'lineup'); t.oncomplete = res; t.onerror = res; }); }
+async function photoDel() { const db = await photoDb(); if (!db) return; db.transaction('img', 'readwrite').objectStore('img').delete('lineup'); }
+
+// Turn face taps into rows: split by the biggest vertical gaps, front row = lowest in the photo,
+// then left to right within each row.
+export function rowsFromTags(tags, n) {
+  if (!tags.length) return Array.from({ length: n }, () => []);
+  const byY = tags.slice().sort((a, b) => a.y - b.y);
+  const k = Math.min(n, byY.length);
+  const gaps = byY.slice(1).map((t, i) => ({ i: i + 1, g: t.y - byY[i].y })).sort((a, b) => b.g - a.g).slice(0, k - 1).map(x => x.i).sort((a, b) => a - b);
+  const groups = []; let start = 0; [...gaps, byY.length].forEach(cut => { groups.push(byY.slice(start, cut)); start = cut; });
+  const rows = groups.reverse().map(g => g.sort((a, b) => a.x - b.x).map(t => ({ id: t.id || null, name: t.name })));
+  while (rows.length < n) rows.push([]);
+  return rows;
+}
+
 const ROW_NAMES = (n) => n === 1 ? ['From left'] : Array.from({ length: n }, (_, i) => i === 0 ? 'Front row' : i === n - 1 ? 'Back row' : ['Second row', 'Third row', 'Fourth row'][i - 1]);
 let L = null;
 export async function viewLineup(main, user) {
@@ -384,8 +403,11 @@ export async function viewLineup(main, user) {
     const credit = L.photographer ? ` (Photo by ${L.photographer})` : '';
     return head + parts.join('. ') + (parts.length ? '.' : '') + (missing.length ? ` Not pictured: ${missing.join(', ')}.` : '') + credit;
   };
+  L.tags ||= [];
   const draw = () => {
+    if (L.tags.length) L.rows = rowsFromTags(L.tags, L.rowsCount);
     const pl = placed(), names = ROW_NAMES(L.rowsCount);
+    paintTags();
     $('#rows').innerHTML = L.rows.map((r, i) => `<div class="lrow ${L.cur === i ? 'cur' : ''}" data-row="${i}">
         <div class="row between"><b>${names[i]}</b><span class="small muted">${r.length} · ${L.cur === i ? 'adding here' : 'tap to add here'}</span></div>
         <div class="lnames">${r.map((x, k) => `<span class="lchip" data-k="${k}"><span class="ln">${k + 1}</span>${esc(x.name)}<button data-act="rm" aria-label="Remove">✕</button></span>`).join('') || '<span class="small muted">Tap names below, left to right.</span>'}</div></div>`).join('');
@@ -406,7 +428,11 @@ export async function viewLineup(main, user) {
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-bottom:10px">
       <label class="field"><span class="tiny">Team name (starts the caption)</span><input class="input" id="lteam" value="${esc(L.team ?? 'Merrill High School Girls Wrestling')}"></label>
       <label class="field"><span class="tiny">Photo by (the paper credits this)</span><input class="input" id="lph" value="${esc(L.photographer || '')}" placeholder="Photographer's name"></label></div>
-    <div class="small muted" style="margin-bottom:8px">Tap a row, then tap names in order from <b>left to right</b> as you look at the photo. Drag a name to fix the order; ✕ removes it.</div>
+    <div class="card" style="margin-bottom:12px"><div class="row wrap between" style="gap:8px"><b>📷 Tag the team photo</b>
+        <span class="row" style="gap:6px"><label class="btn primary sm">${'Upload photo'}<input type="file" id="lphoto" accept="image/*" hidden></label><button class="btn sm ghost hidden" id="lzoom">🔍 Zoom</button><button class="btn sm ghost hidden" id="lphdel">Remove photo</button></span></div>
+      <div class="small muted" style="margin-top:6px">Upload the photo, then <b>tap each face</b> and pick or type that girl's name. The rows and left-to-right order build themselves. The photo stays on this phone; only names are saved.</div>
+      <div class="phwrap hidden" id="phwrap"><div class="ph" id="ph"><img id="phimg" alt="Team photo"><div id="phtags"></div></div></div></div>
+    <div class="small muted" style="margin-bottom:8px" id="lhow">No photo? Tap a row, then tap names in order from <b>left to right</b> as you look at the photo. Drag a name to fix the order; ✕ removes it.</div>
     <div id="rows" class="stack"></div>
     <div class="card" style="margin-top:12px"><div class="row wrap between" style="gap:8px"><b>Add to <span id="lcurname"></span></b>
 </div>
@@ -423,11 +449,73 @@ export async function viewLineup(main, user) {
       <div class="row wrap" style="gap:6px" id="lpool"></div></div>
     <div class="card" style="margin-top:12px;border-color:rgba(250,204,21,.4)"><div class="row between"><b>Caption for the paper</b><button class="btn gold" id="lcp">Copy caption</button></div>
       <p id="cap" style="line-height:1.55;margin:10px 0 0;white-space:pre-wrap"></p></div>`;
+  // ---- photo tagging ----
+  let zoom = 1;
+  const short = (n) => n === 'Front row' ? 'F' : n === 'Back row' ? 'B' : n === 'From left' ? '' : n.split(' ')[0][0];
+  function paintTags() {
+    const box = $('#phtags'); if (!box) return;
+    const names = ROW_NAMES(L.rowsCount);
+    const pos = {}; L.rows.forEach((r, ri) => r.forEach((x, k) => { pos[(x.id || '') + '|' + x.name] = `${short(names[ri])}${k + 1}`; }));
+    box.innerHTML = L.tags.map((t, i) => `<button class="ptag" data-tag="${i}" style="left:${t.x}%;top:${t.y}%"><span class="pd">${pos[(t.id || '') + '|' + t.name] || ''}</span><span class="pn">${esc(t.name.split(' ')[0])}</span></button>`).join('');
+    $('#lhow').classList.toggle('hidden', !!L.tags.length);
+  }
+  const showPhoto = (blob) => {
+    if (!blob) return;
+    $('#phimg').src = URL.createObjectURL(blob);
+    ['phwrap', 'lzoom', 'lphdel'].forEach(id => $('#' + id).classList.remove('hidden'));
+  };
+  photoGet().then(showPhoto);
+  $('#lphoto').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; await photoPut(f); showPhoto(f); toast('Now tap each face to add her name', 'success'); };
+  $('#lzoom').onclick = () => { zoom = zoom === 1 ? 2 : zoom === 2 ? 3 : 1; $('#ph').style.width = (zoom * 100) + '%'; $('#lzoom').textContent = `🔍 ${zoom}x`; };
+  $('#lphdel').onclick = async () => { if (!(await confirmBox('Remove the photo?', 'Removes the photo and its name tags from this phone. Names stay on the roster.', 'Remove'))) return;
+    await photoDel(); L.tags = []; L.rows = Array.from({ length: L.rowsCount }, () => []); ['phwrap', 'lzoom', 'lphdel'].forEach(id => $('#' + id).classList.add('hidden')); draw(); };
+  const tagSheet = (x, y, idx = null) => {
+    const t = idx !== null ? L.tags[idx] : null;
+    const taken = new Set(L.tags.filter((_, i) => i !== idx).map(z => z.id).filter(Boolean));
+    let q = '';
+    const list = () => pool().filter(a => !taken.has(a.id) && (!q || full(a).toLowerCase().includes(q.toLowerCase()))).map(a => `<button class="dr" data-act="pick" data-id="${a.id}"><span class="grow"><span class="dr-t" style="text-transform:none">${esc(full(a))}</span></span><span class="dr-plus">✓</span></button>`).join('')
+      || `<div class="small muted">${q ? 'Not on the roster. Add her below.' : 'Everyone on the roster is tagged. Add someone new below.'}</div>`;
+    const set = (id, name) => { const tag = { x, y, id, name }; if (idx !== null) L.tags[idx] = tag; else L.tags.push(tag); draw(); };
+    const m = modal({ title: t ? `Who is this? (now: ${t.name})` : 'Who is this?', body: `<div class="stack">
+        <input class="input" id="tq" placeholder="🔍 Type her name…" autocomplete="off">
+        <div class="drs" id="tl" style="max-height:38vh;overflow-y:auto">${list()}</div>
+        <div class="card" style="background:#0d1428"><div class="tiny" style="margin-bottom:6px">Not on the roster yet? Add her</div>
+          <div class="grid" style="grid-template-columns:1fr 1fr 64px;gap:6px"><input class="input" id="tf" placeholder="First" autocapitalize="words"><input class="input" id="tln" placeholder="Last" autocapitalize="words">
+            <select class="input" id="tg"><option value="">Gr</option>${GRADES.slice(6).map(g => `<option>${g}</option>`).join('')}</select></div>
+          <div class="row" style="gap:6px;margin-top:6px"><button class="btn primary grow" data-act="newgirl">＋ Add wrestler</button><button class="btn" data-act="newother">＋ Coach / other</button></div></div></div>`,
+      footer: t ? '<button class="btn danger" data-act="untag">Remove this tag</button><span class="grow"></span><button class="btn" data-act="close">Cancel</button>' : '',
+      onAction: async (act, el, w, close) => {
+        if (act === 'pick') { const a = athletes.find(z => z.id === el.dataset.id); set(a.id, full(a)); close(); }
+        if (act === 'untag') { L.tags.splice(idx, 1); close(); draw(); }
+        if (act === 'newgirl' || act === 'newother') {
+          const first = cap(w.querySelector('#tf').value), last = cap(w.querySelector('#tln').value), grade = w.querySelector('#tg').value;
+          if (!first) return toast('Type a name', 'error');
+          if (act === 'newother') { set(null, `${first} ${last}`.trim()); close(); return; }
+          if (!last) return toast('First and last name, please', 'error');
+          const dup = athletes.find(a => a.first.toLowerCase() === first.toLowerCase() && a.last.toLowerCase() === last.toLowerCase());
+          let id = dup?.id;
+          if (!dup) { const site = L.site !== 'all' ? L.site : (user.prefs?.site || '');
+            try { id = await store.put('athletes', null, { first, last, grade, nick: '', level: '', site, active: true }); athletes.push({ id, first, last, grade, site, active: true }); athletes.sort(sortAth); }
+            catch (err) { return toast('Not saved to roster: ' + (err.code || err.message), 'error'); } }
+          set(id, `${first} ${last}`); close(); toast(dup ? `${first} was already on the roster` : `Added ${first} ${last} to the roster`, 'success');
+        }
+      } });
+    const qi = m.el.querySelector('#tq'); qi.oninput = () => { q = qi.value; m.el.querySelector('#tl').innerHTML = list(); m.el.querySelector('#tf').value = q.split(' ')[0] || ''; m.el.querySelector('#tln').value = q.split(' ').slice(1).join(' '); };
+    if (window.innerWidth > 760) setTimeout(() => qi.focus(), 50);
+  };
+  $('#ph').addEventListener('click', (e) => {
+    const tg = e.target.closest('[data-tag]');
+    if (tg) { const t = L.tags[+tg.dataset.tag]; return tagSheet(t.x, t.y, +tg.dataset.tag); }
+    if (e.target.id !== 'phimg') return;
+    const r = e.target.getBoundingClientRect();
+    tagSheet(Math.round((e.clientX - r.left) / r.width * 1000) / 10, Math.round((e.clientY - r.top) / r.height * 1000) / 10);
+  });
+
   const resize = (n) => { while (L.rows.length < n) L.rows.push([]); if (L.rows.length > n) { const extra = L.rows.splice(n).flat(); L.rows[n - 1].push(...extra); } L.rowsCount = n; L.cur = Math.min(L.cur, n - 1); };
   $('#lrc').onchange = (e) => { resize(+e.target.value); draw(); };
   $('#lst') && ($('#lst').onchange = (e) => { L.site = e.target.value; draw(); });
   $('#lnp').onchange = (e) => { L.notPictured = e.target.checked; draw(); };
-  $('#lclr').onclick = async () => { if (await confirmBox('Start over?', 'Clears every row.', 'Clear')) { L.rows = Array.from({ length: L.rowsCount }, () => []); L.cur = 0; draw(); } };
+  $('#lclr').onclick = async () => { if (await confirmBox('Start over?', 'Clears every row.', 'Clear')) { L.rows = Array.from({ length: L.rowsCount }, () => []); L.tags = []; L.cur = 0; draw(); } };
   $('#lq').oninput = draw;
   L.team ??= 'Merrill High School Girls Wrestling';
   $('#lteam').oninput = (e) => { L.team = e.target.value.trim(); draw(); };
@@ -452,8 +540,9 @@ export async function viewLineup(main, user) {
   $('#lcp').onclick = async () => { try { await navigator.clipboard.writeText(caption()); toast('Caption copied', 'success'); } catch (e) { prompt('Copy the caption:', caption()); } };
   main.onclick = (e) => {
     const add = e.target.closest('[data-add]');
-    if (add) { const a = athletes.find(x => x.id === add.dataset.add); L.rows[L.cur].push({ id: a.id, name: full(a) }); draw(); return; }
-    if (e.target.closest('[data-act=rm]')) { const r = +e.target.closest('[data-row]').dataset.row, k = +e.target.closest('[data-k]').dataset.k; L.rows[r].splice(k, 1); draw(); return; }
+    if (add) { if (L.tags.length) return toast('You\'re tagging the photo. Tap her face in the photo instead.', 'error'); const a = athletes.find(x => x.id === add.dataset.add); L.rows[L.cur].push({ id: a.id, name: full(a) }); draw(); return; }
+    if (e.target.closest('[data-act=rm]')) { const r = +e.target.closest('[data-row]').dataset.row, k = +e.target.closest('[data-k]').dataset.k;
+      if (L.tags.length) { const x = L.rows[r][k]; const ti = L.tags.findIndex(t => (t.id || null) === (x.id || null) && t.name === x.name); if (ti >= 0) L.tags.splice(ti, 1); } else L.rows[r].splice(k, 1); draw(); return; }
     const row = e.target.closest('.lrow'); if (row && !e.target.closest('.lchip')) { L.cur = +row.dataset.row; draw(); }
   };
   draw();
