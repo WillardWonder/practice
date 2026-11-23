@@ -176,6 +176,10 @@ service cloud.firestore {
       allow read: if isCoach();
       allow write: if isCoach();
     }
+    match /lineupphotos/{id} {
+      allow read: if isStaff();
+      allow write: if isCoach() && (request.resource == null || (request.resource.data.data is string && request.resource.data.data.size() < 1000000));
+    }
     match /lineups/{id} {
       allow read: if isStaff();
       allow write: if isCoach();

@@ -366,11 +366,22 @@ function editTeamGoals(tg, done) {
 }
 
 // ---- Photo caption (team picture lineup) ----------------------------------
-// ---- Team photo kept on this device only (IndexedDB), never uploaded ----
-function photoDb() { return new Promise((res) => { if (!('indexedDB' in window)) return res(null); const r = indexedDB.open('practice-photo', 1); r.onupgradeneeded = () => r.result.createObjectStore('img'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); }
-async function photoGet() { const db = await photoDb(); if (!db) return null; return new Promise(res => { const t = db.transaction('img').objectStore('img').get('lineup'); t.onsuccess = () => res(t.result || null); t.onerror = () => res(null); }); }
-async function photoPut(blob) { const db = await photoDb(); if (!db) return; return new Promise(res => { const t = db.transaction('img', 'readwrite'); t.objectStore('img').put(blob, 'lineup'); t.oncomplete = res; t.onerror = res; }); }
-async function photoDel() { const db = await photoDb(); if (!db) return; db.transaction('img', 'readwrite').objectStore('img').delete('lineup'); }
+// ---- Team photo: shrunk to ~300 KB and saved in Firestore (lineupphotos/{id}),
+// so every coach can open it and keep tagging on any device. Tags live in lineups/{id}.
+const lineupId = (site) => `photo-${site && site !== 'all' ? site : 'team'}`;
+async function shrinkPhoto(file, maxW = 1600, q = 0.78) {
+  const url = URL.createObjectURL(file);
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+  let w = img.naturalWidth, h = img.naturalHeight; const k = Math.min(1, maxW / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+  const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+  URL.revokeObjectURL(url);
+  let data = c.toDataURL('image/jpeg', q);
+  while (data.length > 900000 && q > 0.4) { q -= 0.1; data = c.toDataURL('image/jpeg', q); }
+  return { data, w, h };
+}
+async function photoLoad(id) { try { const r = (await store.list('lineupphotos')).find(x => x.id === id); return r?.data ? r : null; } catch (e) { return null; } }
+async function photoSave(id, p) { await store.put('lineupphotos', id, { data: p.data, w: p.w, h: p.h }); }
+async function photoRemove(id) { try { await store.del('lineupphotos', id); } catch (e) {} }
 
 // Turn face taps into rows: split by the biggest vertical gaps, front row = lowest in the photo,
 // then left to right within each row.
@@ -378,7 +389,9 @@ export function rowsFromTags(tags, n) {
   if (!tags.length) return Array.from({ length: n }, () => []);
   const byY = tags.slice().sort((a, b) => a.y - b.y);
   const k = Math.min(n, byY.length);
-  const gaps = byY.slice(1).map((t, i) => ({ i: i + 1, g: t.y - byY[i].y })).sort((a, b) => b.g - a.g).slice(0, k - 1).map(x => x.i).sort((a, b) => a - b);
+  // Only split where faces are clearly at different heights (rows are usually 10-20% of the photo apart,
+  // faces in one row wobble a few %), so a half-tagged photo never breaks one row in two.
+  const gaps = byY.slice(1).map((t, i) => ({ i: i + 1, g: t.y - byY[i].y })).filter(x => x.g >= 6).sort((a, b) => b.g - a.g).slice(0, k - 1).map(x => x.i).sort((a, b) => a - b);
   const groups = []; let start = 0; [...gaps, byY.length].forEach(cut => { groups.push(byY.slice(start, cut)); start = cut; });
   const rows = groups.reverse().map(g => g.sort((a, b) => a.x - b.x).map(t => ({ id: t.id || null, name: t.name })));
   while (rows.length < n) rows.push([]);
@@ -392,6 +405,8 @@ export async function viewLineup(main, user) {
   main.innerHTML = '<div class="muted">Loading…</div>';
   const { athletes, sites } = await load();
   if (!L) { try { L = JSON.parse(localStorage.getItem('practice-lineup') || 'null'); } catch (e) { L = null; } }
+  const siteGuess = L?.site || (sites.some(s => s.id === user.prefs?.site) ? user.prefs.site : 'all');
+  try { const saved = (await store.list('lineups')).find(x => x.id === lineupId(siteGuess)); if (saved?.state && (!L || (saved.updatedAt || 0) > (L.savedAt || 0))) L = { ...saved.state, savedAt: saved.updatedAt }; } catch (e) {}
   L ||= { title: 'Team photo', rowsCount: 3, rows: [[], [], []], cur: 0, site: sites.some(s => s.id === user.prefs?.site) ? user.prefs.site : 'all', notPictured: true, extras: [] };
   const pool = () => athletes.filter(a => a.active !== false && (L.site === 'all' || !sites.length || a.site === L.site));
   const placed = () => new Set(L.rows.flat().filter(x => x.id).map(x => x.id));
@@ -404,6 +419,9 @@ export async function viewLineup(main, user) {
     return head + parts.join('. ') + (parts.length ? '.' : '') + (missing.length ? ` Not pictured: ${missing.join(', ')}.` : '') + credit;
   };
   L.tags ||= [];
+  let shareT = null;
+  const saveShared = () => { clearTimeout(shareT); shareT = setTimeout(async () => { L.savedAt = Date.now(); const { savedAt, ...state } = L;
+    try { await store.put('lineups', lineupId(L.site), { state, site: L.site }); const st = $('#lsave'); if (st) st.textContent = '✓ Saved for every coach'; } catch (e) { const st = $('#lsave'); if (st) st.textContent = '⚠ Not saved to the team: ' + (e.code || e.message); } }, 600); };
   const draw = () => {
     if (L.tags.length) L.rows = rowsFromTags(L.tags, L.rowsCount);
     const pl = placed(), names = ROW_NAMES(L.rowsCount);
@@ -416,6 +434,7 @@ export async function viewLineup(main, user) {
     $('#cap').textContent = caption();
     const cn = $('#lcurname'); if (cn) cn.textContent = names[L.cur];
     try { localStorage.setItem('practice-lineup', JSON.stringify(L)); } catch (e) {}
+    saveShared();
     $$('.lnames').forEach((el, i) => { if (window.Sortable) Sortable.create(el, { animation: 150, draggable: '.lchip', onEnd: (e) => { const r = L.rows[i]; const [m] = r.splice(e.oldIndex, 1); r.splice(e.newIndex, 0, m); draw(); } }); });
   };
   main.innerHTML = `<div class="page-head"><div><h1>Photo caption</h1><div class="muted small">Names in order, spelled from the roster</div></div><a class="btn ghost sm" href="#/roster">← Roster</a></div>
@@ -429,9 +448,9 @@ export async function viewLineup(main, user) {
       <label class="field"><span class="tiny">Team name (starts the caption)</span><input class="input" id="lteam" value="${esc(L.team ?? 'Merrill High School Girls Wrestling')}"></label>
       <label class="field"><span class="tiny">Photo by (the paper credits this)</span><input class="input" id="lph" value="${esc(L.photographer || '')}" placeholder="Photographer's name"></label></div>
     <div class="card" style="margin-bottom:12px"><div class="row wrap between" style="gap:8px"><b>📷 Tag the team photo</b>
-        <span class="row" style="gap:6px"><label class="btn primary sm">${'Upload photo'}<input type="file" id="lphoto" accept="image/*" hidden></label><button class="btn sm ghost hidden" id="lzoom">🔍 Zoom</button><button class="btn sm ghost hidden" id="lphdel">Remove photo</button></span></div>
-      <div class="small muted" style="margin-top:6px">Upload the photo, then <b>tap each face</b> and pick or type that girl's name. The rows and left-to-right order build themselves. The photo stays on this phone; only names are saved.</div>
-      <div class="phwrap hidden" id="phwrap"><div class="ph" id="ph"><img id="phimg" alt="Team photo"><div id="phtags"></div></div></div></div>
+        <span class="row" style="gap:6px"><label class="btn primary sm"><span id="lupl">Upload photo</span><input type="file" id="lphoto" accept="image/*" hidden></label><button class="btn sm ghost hidden" id="lphdel">Remove photo</button></span></div>
+      <div class="small muted" style="margin-top:6px">Upload the photo, then tap it to open <b>full screen</b>. Pinch or double-tap to zoom, tap each face, and pick or type her name. Rows and left-to-right order build themselves. Saved for every coach. <span id="lsave"></span></div>
+      <div class="phprev hidden" id="phwrap"><div class="ph" id="ph"><img id="phimg" alt="Team photo"><div id="phtags"></div></div><div class="phopen">⤢ Tap to tag full screen</div></div></div>
     <div class="small muted" style="margin-bottom:8px" id="lhow">No photo? Tap a row, then tap names in order from <b>left to right</b> as you look at the photo. Drag a name to fix the order; ✕ removes it.</div>
     <div id="rows" class="stack"></div>
     <div class="card" style="margin-top:12px"><div class="row wrap between" style="gap:8px"><b>Add to <span id="lcurname"></span></b>
@@ -450,25 +469,77 @@ export async function viewLineup(main, user) {
     <div class="card" style="margin-top:12px;border-color:rgba(250,204,21,.4)"><div class="row between"><b>Caption for the paper</b><button class="btn gold" id="lcp">Copy caption</button></div>
       <p id="cap" style="line-height:1.55;margin:10px 0 0;white-space:pre-wrap"></p></div>`;
   // ---- photo tagging ----
-  let zoom = 1;
   const short = (n) => n === 'Front row' ? 'F' : n === 'Back row' ? 'B' : n === 'From left' ? '' : n.split(' ')[0][0];
-  function paintTags() {
-    const box = $('#phtags'); if (!box) return;
+  const tagsHTML = () => {
     const names = ROW_NAMES(L.rowsCount);
     const pos = {}; L.rows.forEach((r, ri) => r.forEach((x, k) => { pos[(x.id || '') + '|' + x.name] = `${short(names[ri])}${k + 1}`; }));
-    box.innerHTML = L.tags.map((t, i) => `<button class="ptag" data-tag="${i}" style="left:${t.x}%;top:${t.y}%"><span class="pd">${pos[(t.id || '') + '|' + t.name] || ''}</span><span class="pn">${esc(t.name.split(' ')[0])}</span></button>`).join('');
-    $('#lhow').classList.toggle('hidden', !!L.tags.length);
-  }
-  const showPhoto = (blob) => {
-    if (!blob) return;
-    $('#phimg').src = URL.createObjectURL(blob);
-    ['phwrap', 'lzoom', 'lphdel'].forEach(id => $('#' + id).classList.remove('hidden'));
+    return L.tags.map((t, i) => `<button class="ptag" data-tag="${i}" style="left:${t.x}%;top:${t.y}%"><span class="pd">${pos[(t.id || '') + '|' + t.name] || ''}</span><span class="pn">${esc(t.name.split(' ')[0])}</span></button>`).join('');
   };
-  photoGet().then(showPhoto);
-  $('#lphoto').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; await photoPut(f); showPhoto(f); toast('Now tap each face to add her name', 'success'); };
-  $('#lzoom').onclick = () => { zoom = zoom === 1 ? 2 : zoom === 2 ? 3 : 1; $('#ph').style.width = (zoom * 100) + '%'; $('#lzoom').textContent = `🔍 ${zoom}x`; };
-  $('#lphdel').onclick = async () => { if (!(await confirmBox('Remove the photo?', 'Removes the photo and its name tags from this phone. Names stay on the roster.', 'Remove'))) return;
-    await photoDel(); L.tags = []; L.rows = Array.from({ length: L.rowsCount }, () => []); ['phwrap', 'lzoom', 'lphdel'].forEach(id => $('#' + id).classList.add('hidden')); draw(); };
+  function paintTags() {
+    const box = $('#phtags'); if (box) box.innerHTML = tagsHTML();
+    const fs = document.getElementById('fstags'); if (fs) fs.innerHTML = tagsHTML();
+    const fc = document.getElementById('fscount'); if (fc) fc.textContent = `${L.tags.length} tagged`;
+    $('#lhow')?.classList.toggle('hidden', !!L.tags.length);
+  }
+  let photo = null;
+  const showPhoto = (p) => {
+    photo = p; if (!p) return;
+    $('#phimg').src = p.data;
+    ['phwrap', 'lphdel'].forEach(id => $('#' + id).classList.remove('hidden')); $('#lupl').textContent = 'Replace photo';
+  };
+  photoLoad(lineupId(L.site)).then(showPhoto);
+  $('#lphoto').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    $('#lupl').textContent = 'Uploading…';
+    try { const p = await shrinkPhoto(f); await photoSave(lineupId(L.site), p); showPhoto(p); toast('Photo saved. Tap it to tag faces.', 'success'); openFull(); }
+    catch (err) { $('#lupl').textContent = 'Upload photo'; toast('Photo not saved: ' + (err.code || err.message), 'error'); }
+    e.target.value = '';
+  };
+  $('#lphdel').onclick = async () => { if (!(await confirmBox('Remove the photo?', 'Removes the photo and its name tags for every coach. Names stay on the roster.', 'Remove'))) return;
+    await photoRemove(lineupId(L.site)); photo = null; L.tags = []; L.rows = Array.from({ length: L.rowsCount }, () => []);
+    ['phwrap', 'lphdel'].forEach(id => $('#' + id).classList.add('hidden')); $('#lupl').textContent = 'Upload photo'; draw(); };
+  $('#phwrap').onclick = () => openFull();
+
+  // Full-screen viewer: pinch / wheel / double-tap zoom, drag to pan, tap a face to tag.
+  function openFull() {
+    if (!photo) return;
+    const fs = document.createElement('div'); fs.className = 'fsview';
+    fs.innerHTML = `<div class="fsbar"><b>Tap a face</b><span id="fscount" class="small muted"></span><span class="grow"></span>
+        <button class="btn sm" data-z="-">−</button><button class="btn sm" data-z="+">＋</button><button class="btn sm" data-z="0">Fit</button><button class="btn primary sm" data-z="x">Done</button></div>
+      <div class="fsstage" id="fsstage"><div class="fsinner" id="fsinner"><img src="${photo.data}" id="fsimg" draggable="false"><div id="fstags"></div></div></div>
+      <div class="fshint small">Pinch or double-tap to zoom · drag to move · tap a face to name her · tap a tag to change it</div>`;
+    document.body.appendChild(fs); paintTags();
+    const stage = fs.querySelector('#fsstage'), inner = fs.querySelector('#fsinner'), img = fs.querySelector('#fsimg');
+    let sc = 1, tx = 0, ty = 0, base = 1;
+    const fit = () => { const r = stage.getBoundingClientRect(); base = Math.min(r.width / photo.w, r.height / photo.h); inner.style.width = photo.w * base + 'px'; inner.style.height = photo.h * base + 'px'; sc = 1; tx = (r.width - photo.w * base) / 2; ty = (r.height - photo.h * base) / 2; apply(); };
+    const apply = () => { inner.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`; inner.style.setProperty('--inv', 1 / sc); };
+    const zoomAt = (f, cx, cy) => { const n = Math.max(1, Math.min(8, sc * f)); const k = n / sc; tx = cx - (cx - tx) * k; ty = cy - (cy - ty) * k; sc = n; if (sc === 1) fit(); else apply(); };
+    const local = (e) => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    const pts = new Map(); let down = null, pinch = null, lastTap = 0;
+    stage.addEventListener('pointerdown', (e) => { stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, local(e));
+      if (pts.size === 1) down = { p: local(e), tx, ty, t: Date.now(), moved: false, target: e.target };
+      if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), sc, tx, ty, m: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] }; down = null; } });
+    stage.addEventListener('pointermove', (e) => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, local(e));
+      if (pinch && pts.size >= 2) { const [a, b] = [...pts.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); const n = Math.max(1, Math.min(8, pinch.sc * d / pinch.d)); const k = n / pinch.sc;
+        const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; sc = n; tx = m[0] - (pinch.m[0] - pinch.tx) * k; ty = m[1] - (pinch.m[1] - pinch.ty) * k; apply(); return; }
+      if (down) { const p = local(e); const dx = p[0] - down.p[0], dy = p[1] - down.p[1]; if (Math.hypot(dx, dy) > 8) down.moved = true; if (down.moved && sc > 1) { tx = down.tx + dx; ty = down.ty + dy; apply(); } } });
+    const up = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
+      if (down && !down.moved && e.type === 'pointerup') {
+        const p = local(e), now = Date.now();
+        const tagEl = down.target.closest && down.target.closest('[data-tag]');
+        if (tagEl) { const i = +tagEl.dataset.tag, t = L.tags[i]; tagSheet(t.x, t.y, i); }
+        else if (now - lastTap < 300) { zoomAt(sc > 1.5 ? 1 / sc : 2.5, p[0], p[1]); lastTap = 0; clearTimeout(down.timer); }
+        else { lastTap = now; const r = img.getBoundingClientRect(); const cx = e.clientX, cy = e.clientY;
+          if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) { const x = Math.round((cx - r.left) / r.width * 1000) / 10, y = Math.round((cy - r.top) / r.height * 1000) / 10;
+            const tmr = setTimeout(() => { if (lastTap === now) tagSheet(x, y); }, 280); down.timer = tmr; } } }
+      if (pts.size === 0) down = null; };
+    stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', up);
+    stage.addEventListener('wheel', (e) => { e.preventDefault(); const p = local(e); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, p[0], p[1]); }, { passive: false });
+    fs.querySelector('.fsbar').onclick = (e) => { const z = e.target.closest('[data-z]')?.dataset.z; if (!z) return; const r = stage.getBoundingClientRect();
+      if (z === 'x') { fs.remove(); window.removeEventListener('resize', fit); draw(); } else if (z === '0') fit(); else zoomAt(z === '+' ? 1.5 : 1 / 1.5, r.width / 2, r.height / 2); };
+    window.addEventListener('resize', fit);
+    if (img.complete) fit(); else img.onload = fit;
+  }
   const tagSheet = (x, y, idx = null) => {
     const t = idx !== null ? L.tags[idx] : null;
     const taken = new Set(L.tags.filter((_, i) => i !== idx).map(z => z.id).filter(Boolean));
@@ -503,17 +574,9 @@ export async function viewLineup(main, user) {
     const qi = m.el.querySelector('#tq'); qi.oninput = () => { q = qi.value; m.el.querySelector('#tl').innerHTML = list(); m.el.querySelector('#tf').value = q.split(' ')[0] || ''; m.el.querySelector('#tln').value = q.split(' ').slice(1).join(' '); };
     if (window.innerWidth > 760) setTimeout(() => qi.focus(), 50);
   };
-  $('#ph').addEventListener('click', (e) => {
-    const tg = e.target.closest('[data-tag]');
-    if (tg) { const t = L.tags[+tg.dataset.tag]; return tagSheet(t.x, t.y, +tg.dataset.tag); }
-    if (e.target.id !== 'phimg') return;
-    const r = e.target.getBoundingClientRect();
-    tagSheet(Math.round((e.clientX - r.left) / r.width * 1000) / 10, Math.round((e.clientY - r.top) / r.height * 1000) / 10);
-  });
-
   const resize = (n) => { while (L.rows.length < n) L.rows.push([]); if (L.rows.length > n) { const extra = L.rows.splice(n).flat(); L.rows[n - 1].push(...extra); } L.rowsCount = n; L.cur = Math.min(L.cur, n - 1); };
   $('#lrc').onchange = (e) => { resize(+e.target.value); draw(); };
-  $('#lst') && ($('#lst').onchange = (e) => { L.site = e.target.value; draw(); });
+  $('#lst') && ($('#lst').onchange = async (e) => { L.site = e.target.value; try { const saved = (await store.list('lineups')).find(x => x.id === lineupId(L.site)); if (saved?.state) L = { ...saved.state, site: e.target.value }; } catch (err) {} viewLineup(main, user); });
   $('#lnp').onchange = (e) => { L.notPictured = e.target.checked; draw(); };
   $('#lclr').onclick = async () => { if (await confirmBox('Start over?', 'Clears every row.', 'Clear')) { L.rows = Array.from({ length: L.rowsCount }, () => []); L.tags = []; L.cur = 0; draw(); } };
   $('#lq').oninput = draw;

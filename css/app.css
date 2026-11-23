@@ -467,3 +467,13 @@ details summary { cursor: pointer; padding: 6px 0; }
 .ptag { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; border: 0; background: transparent; padding: 0; cursor: pointer; }
 .ptag .pd { min-width: 26px; height: 26px; border-radius: 13px; background: var(--gold); color: #111; font-weight: 900; font-size: 12px; display: grid; place-items: center; border: 2px solid #111; padding: 0 4px; }
 .ptag .pn { margin-top: 2px; background: rgba(0,0,0,.75); color: #fff; font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
+.phprev { position: relative; margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); cursor: zoom-in; }
+.phprev .ptag { pointer-events: none; }
+.phopen { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.75); color: #fff; font-weight: 800; font-size: 12px; padding: 6px 10px; border-radius: 10px; }
+.fsview { position: fixed; inset: 0; z-index: 80; background: #000; display: flex; flex-direction: column; }
+.fsbar { display: flex; align-items: center; gap: 8px; padding: max(10px, env(safe-area-inset-top)) 12px 10px; background: #0b1020; border-bottom: 1px solid var(--line); }
+.fsstage { position: relative; flex: 1; overflow: hidden; touch-action: none; }
+.fsinner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.fsinner img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-select: none; pointer-events: none; }
+.fsinner .ptag { transform: translate(-50%, -50%) scale(var(--inv, 1)); }
+.fshint { text-align: center; color: #94a3b8; padding: 8px 12px max(8px, env(safe-area-inset-bottom)); background: #0b1020; }

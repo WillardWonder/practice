@@ -16,3 +16,11 @@ test('photo taps become rows: front row = lowest, left to right', async () => {
   assert.deepEqual(rows, [['F1', 'F2', 'F3'], ['M1', 'M2', 'M3'], ['B1', 'B2', 'B3']]);
   assert.deepEqual(rowsFromTags([t('A', 10, 50)], 3).map(r => r.length), [1, 0, 0]);
 });
+
+test('partly tagged photo keeps a row together', async () => {
+  const { rowsFromTags } = await import('../js/roster.js');
+  const t = (name, x, y) => ({ name, x, y, id: name });
+  const rows = rowsFromTags([t('Lily', 20, 22.5), t('Ava', 16.7, 77.5), t('Kenzie', 50, 77.6), t('Zoe', 83, 77.4)], 3).map(r => r.map(x => x.name));
+  assert.deepEqual(rows[0], ['Ava', 'Kenzie', 'Zoe']);
+  assert.deepEqual(rows[1], ['Lily']);
+});
