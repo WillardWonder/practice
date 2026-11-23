@@ -118,7 +118,7 @@ async function showPrestart() {
     <h1 style="font-size:clamp(28px,5vw,56px);font-weight:900;font-style:italic;text-transform:uppercase">${esc(S.practice.title)}</h1>
     <div class="muted">${Math.round(total / 60)} min · ${S.practice.blocks.length} blocks · ends ~${new Date(Date.now() + (total + st.leadIn) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
     ${S.sites?.length ? `<label class="field" style="min-width:260px"><span class="tiny">Where is this practice?</span><select class="input" id="l-site">${S.sites.map(x => `<option value="${x.id}" ${x.id === (S.user.prefs?.site || '') ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : ''}
-    <button class="goalcard ${goalIsToday(S.practice) ? 'ok' : 'need'}" data-act="pgoal" id="l-goal" style="max-width:560px">${goalIsToday(S.practice) ? `<span class="tiny">🎯 Today's goal</span><span class="gt">${esc(goalText(S.practice.goal))}</span>` : `<span class="tiny">🎯 Set today's practice goal (required)</span><span class="gt">${S.practice.goal?.what ? 'Last goal: ' + esc(goalText(S.practice.goal)) : 'Tap to set it'}</span>`}</button>
+    <button class="goalcard ${goalIsToday(S.practice) ? 'ok' : 'need'}" data-act="pgoal" id="l-goal" style="max-width:560px">${goalIsToday(S.practice) ? `<span class="tiny">🎯 Today's goal</span><span class="gt">${esc(goalText(S.practice.goal))}</span>` : `<span class="tiny">🎯 Set today's practice goal (optional)</span><span class="gt">${S.practice.goal?.what ? 'Last goal: ' + esc(goalText(S.practice.goal)) : 'Tap to set it'}</span>`}</button>
     <button class="go" data-act="start">Start</button>
     <div class="small" id="l-voice" style="color:#93c5fd"></div>
     <div class="row wrap" style="justify-content:center;gap:8px;max-width:640px">
@@ -137,7 +137,7 @@ async function showPrestart() {
   prepareVoice(segsFor(S.practice, st.leadIn));
 }
 
-function needGoal(then) {
+function needGoal(then, onSkip = null) {
   practiceGoalSheet(S.practice, async (goal) => {
     S.practice.goal = goal;
     try { await store.savePractice({ ...S.practice }); } catch (e) { /* coach may not own it: the goal still goes on the run */ }
@@ -145,11 +145,12 @@ function needGoal(then) {
     publishTeamGoal(goal, site);
     const g = $('#l-goal'); if (g) { g.className = 'goalcard ok'; g.innerHTML = `<span class="tiny">🎯 Today's goal</span><span class="gt">${esc(goalText(goal))}</span>`; }
     then && then();
-  }, { reason: S.practice.goal?.what ? '' : 'Every practice needs a goal before it starts.' });
+  }, { onSkip });
 }
 
 async function startRun() {
-  if (!goalIsToday(S.practice)) return needGoal(() => startRun());
+  // Goal is optional: offer it once, and Skip goes straight on.
+  if (!goalIsToday(S.practice) && !S.goalAsked) { S.goalAsked = true; return needGoal(() => startRun(), () => startRun()); }
   const ok = await audio.unlock(); audio.unlockVoice(); audio.keepAwake(true);
   if (!ok) toast('Sound is blocked on this device. Tap ⚙ and run a sound check.', 'error');
   if (!can(S.user, 'run')) return toast('Your account can view practices but not run them.', 'error');

@@ -227,7 +227,7 @@ export async function viewWeighIn(main, user) {
     return `<div class="wrow ${off ? 'off' : ''}" data-a="${a.id}">
       <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)} ${off ? '<span class="badge red">Not here</span>' : '<span class="badge green">Here</span>'}</div>
         <div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)})` : 'No previous weigh-in'}${r?.goal?.what ? ` · 🎯 <b style="color:#93c5fd">${esc(r.goal.word)}</b>` : ''}${flags(r)}</div></div>
-      ${off ? '' : `<button class="btn sm ${r?.goal?.what ? 'primary' : ''}" data-act="goal">${r?.feel ? FACES[r.feel - 1] : '🎯'}${r?.goal?.what ? '' : ' Check-in'}</button>`}
+      ${off ? '' : `<button class="btn sm ${r?.goal?.what ? 'primary' : ''}" data-act="goal">${r?.feel ? FACES[r.feel - 1] : '🎯'}${r?.goal?.what || r?.feel ? '' : ' Goal'}</button>`}
       <span class="wd" id="d-${a.id}">${has && p ? diffHTML(r.weight - p.weight) : ''}</span>
       ${has ? `<span class="wlock" title="Saved">${r.weight}<button class="btn ghost sm" data-act="wedit" aria-label="Change weight">✎</button></span>`
         : off ? `<button class="btn sm ghost" data-act="wedit" title="Weighed in separately">＋ Weight</button>` : `<input class="input wi" inputmode="decimal" enterkeyhint="next" data-i="${i}" value="" placeholder="—" aria-label="Weight">`}
@@ -240,13 +240,13 @@ export async function viewWeighIn(main, user) {
     <div class="small"><span class="tiny">Today</span><br>${esc(tg.day) || '<span class="muted">Not set yet</span>'}</div>
     ${tg.mid ? `<div class="small"><span class="tiny">Mid-season</span><br>${esc(tg.mid)}</div>` : ''}
     <div class="small"><span class="tiny">Season</span><br>${esc(tg.season) || '<span class="muted">Not set yet</span>'}</div></div>`;
-  main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="muted small" id="wc"></div></div><div class="row" style="gap:6px"><a class="btn ghost sm" href="#/checkins">◷ History</a><a class="btn go sm" href="#/today">Next: practice →</a></div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="muted small" id="wc"></div></div><div class="row wrap" style="gap:6px"><a class="btn sm" href="#/kiosk">⚡ Quick check-in</a><a class="btn ghost sm" href="#/checkins">◷ History</a><a class="btn go sm" href="#/today">Next: practice →</a></div></div>
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <input type="date" class="input" id="wdt" value="${wDate}" style="width:auto">
       ${sites.length ? `<select class="input" id="wst" style="width:auto"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
       <button class="btn ghost sm" id="wcsv">⬇ Export this day</button></div>
     <div id="tgc">${goalsCard()}</div>
-    <div class="small muted" style="margin-bottom:8px">Everyone starts as here. Tap <b>Not here</b> for anyone missing. Type a weight and hit Enter to jump to the next girl. Each girl taps <b>🎯 Check-in</b>: feeling, sleep, recovery fuel, and today's goal.</div>
+    <div class="small muted" style="margin-bottom:8px">Everyone starts as here. Tap <b>Not here</b> for anyone missing. Type a weight and hit Enter to jump to the next girl. Goals and how-I-feel are optional (🎯). For a fast line, use <a href="#/kiosk">⚡ Quick check-in</a>.</div>
     <div class="plist" id="wl"></div>`;
   $('#wdt').onchange = (e) => { wDate = e.target.value || today(); draw(); };
   $('#wst') && ($('#wst').onchange = async (e) => { wSite = e.target.value; tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); draw(); });
@@ -310,6 +310,7 @@ function goalSheet(a, rec, pg, tg, onSave) {
   const checks = () => smartCheck(g).map(c => `<div class="sm ${c.ok ? 'ok' : ''}"><b>${c.k}</b> ${esc(c.label)}</div>`).join('');
   const yn = (k, label) => `<div class="row wrap" style="gap:6px;align-items:center"><span class="small" style="min-width:190px">${label}</span><button class="chip ${w[k] === true ? 'on' : ''}" data-act="yn" data-k="${k}" data-v="1">Yes</button><button class="chip ${w[k] === false ? 'on' : ''}" data-act="yn" data-k="${k}" data-v="0">No</button></div>`;
   const m = modal({ title: `${a.first}'s check-in`, body: `<div class="stack">
+    <div class="small muted">All optional. Answer what you want, then tap Save.</div>
     <div><div class="tiny" style="margin-bottom:6px">How are you feeling today?</div><div class="faces">${FACES.map((f, i) => `<button class="face ${w.feel === i + 1 ? 'on' : ''}" data-act="feel" data-v="${i + 1}"><span>${f}</span><small>${FACE_LABEL[i]}</small></button>`).join('')}</div></div>
     <div><div class="tiny" style="margin-bottom:6px">How did you sleep last night?</div><div class="row wrap" style="gap:6px">${[5, 6, 7, 8, 9, 10].map(h => `<button class="chip ${w.sleepHrs === h ? 'on' : ''}" data-act="sleep" data-v="${h}">${h === 5 ? '5 or less' : h === 10 ? '10+' : h} hrs</button>`).join('')}</div>
       <div class="row wrap" style="gap:6px;margin-top:6px">${['Great', 'OK', 'Rough'].map(q => `<button class="chip ${w.sleepQ === q ? 'on' : ''}" data-act="sleepq" data-v="${q}">${q}</button>`).join('')}</div></div>
@@ -318,7 +319,7 @@ function goalSheet(a, rec, pg, tg, onSave) {
     ${tg.day ? `<div class="small"><span class="tiny">Team goal today</span><br>${esc(tg.day)}</div>` : ''}
     ${pg ? `<div class="card" style="background:#0d1428"><div class="tiny">Last goal (${fmtDate(pg.date)})</div><div class="small" style="margin:4px 0 8px">${esc(goalText(pg.goal))}</div>
       <div class="row" style="gap:6px"><span class="small">Did you hit it?</span><button class="chip ${met === true ? 'on' : ''}" data-act="met" data-v="1">✓ Yes</button><button class="chip ${met === false ? 'on' : ''}" data-act="met" data-v="0">✗ Not yet</button></div></div>` : ''}
-    <div class="tiny" style="margin-top:6px;color:var(--gold)">Today's goal</div>
+    <div class="tiny" style="margin-top:6px;color:var(--gold)">Today's goal (optional)</div>
     <div><div class="tiny" style="margin-bottom:6px">1. Pick your focus word</div><div class="row wrap" style="gap:6px">${WORDS.map(w => `<button class="chip word ${g.word === w ? 'on' : ''}" data-act="word" data-w="${w}">${w}</button>`).join('')}</div>
       <div class="small muted" id="whint" style="margin-top:4px">${g.word ? esc(WORD_HINT[g.word]) : ''}</div></div>
     <label class="field"><span class="tiny">2. What will you do? (be specific)</span><input class="input" data-g="what" value="${esc(g.what)}" placeholder="e.g. Finish my single leg by running the pipe"></label>
@@ -326,7 +327,7 @@ function goalSheet(a, rec, pg, tg, onSave) {
     <label class="field"><span class="tiny">4. When in practice?</span><input class="input" data-g="when" value="${esc(g.when)}" placeholder="e.g. during live goes today"></label>
     <div class="card" style="background:#0d1428"><div class="tiny" style="margin-bottom:6px">Your goal</div><div id="gprev" style="font-weight:700">${esc(goalText(g)) || '<span class="muted">Fill in the steps above</span>'}</div>
       <div class="smart" id="gchk" style="margin-top:10px">${checks()}</div></div></div>`,
-    footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary lg" data-act="save">Save check-in</button>`,
+    footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary lg" data-act="save">Save</button>`,
     onAction: async (act, el, wrap, close) => {
       const on = (sel, el2) => wrap.querySelectorAll(sel).forEach(c => c.classList.toggle('on', c === el2));
       if (act === 'feel') { w.feel = +el.dataset.v; on('.face', el); }
@@ -336,12 +337,10 @@ function goalSheet(a, rec, pg, tg, onSave) {
       if (act === 'word') { g.word = el.dataset.w; on('.chip.word', el); wrap.querySelector('#whint').textContent = WORD_HINT[g.word]; refresh(); }
       if (act === 'met') { met = el.dataset.v === '1'; on('[data-act=met]', el); }
       if (act === 'save') {
-        if (!w.feel) return toast('Tap a face for how you feel today', 'error');
-        if (!w.sleepHrs) return toast('How many hours did you sleep?', 'error');
-        if (w.fruitVeg === null || w.milk === null) return toast('Answer the two recovery-fuel questions', 'error');
-        const bad = smartCheck(g).filter(c => !c.ok);
-        if (bad.length) return toast('Not a SMART goal yet: ' + bad.map(c => c.label.split(':')[0]).join(', '), 'error');
-        try { await onSave({ word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim() }, met, pg, w); close(); toast('Check-in saved', 'success'); } catch (e) { toast(e.code || e.message, 'error'); }
+        // Everything here is optional: save whatever she answered.
+        const well = {}; ['feel', 'sleepHrs', 'sleepQ'].forEach(k => { if (w[k]) well[k] = w[k]; }); ['fruitVeg', 'milk'].forEach(k => { if (w[k] !== null) well[k] = w[k]; });
+        const goal = (g.what || '').trim() ? { word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim() } : undefined;
+        try { await onSave(goal, met, pg, well); close(); toast('Saved', 'success'); } catch (e) { toast(e.code || e.message, 'error'); }
       }
     } });
   const refresh = () => { m.el.querySelector('#gprev').textContent = goalText(g) || 'Fill in the steps above'; m.el.querySelector('#gchk').innerHTML = checks(); };
@@ -574,12 +573,13 @@ export async function viewPaper(main, user) {
 // ---- Practice goal (required to run) ---------------------------------------
 export const goalIsToday = (p) => !!(p?.goal?.what && p.goal.date === today());
 // Opens the goal sheet for a practice. onSave(goal) gets {word, what, measure, when, date}.
-export function practiceGoalSheet(p, onSave, { reason = '' } = {}) {
+export function practiceGoalSheet(p, onSave, { reason = '', onSkip = null } = {}) {
   const old = p.goal?.what ? p.goal : null;
   const g = { word: '', what: '', measure: '', when: '', ...(goalIsToday(p) ? p.goal : {}) };
   const checks = () => smartCheck(g).map(c => `<div class="sm ${c.ok ? 'ok' : ''}"><b>${c.k}</b> ${esc(c.label.replace('she', 'the team').replace('She', 'The team'))}</div>`).join('');
   const m = modal({ title: '🎯 Today\'s practice goal', body: `<div class="stack">
     ${reason ? `<div class="small" style="color:#fde68a">${esc(reason)}</div>` : ''}
+    <div class="small muted">Optional. The SMART checklist is a guide, not a requirement.</div>
     ${old && !goalIsToday(p) ? `<div class="card" style="background:#0d1428"><div class="tiny">This practice's goal from ${fmtDate(old.date)}</div><div style="margin:6px 0 8px;font-weight:700">${esc(goalText(old))}</div>
       <div class="small muted" style="margin-bottom:8px">It's a new day, so set today's goal. Reuse it or change it.</div><button class="btn sm" data-act="reuse">↺ Use it again for today</button></div>` : ''}
     <div><div class="tiny" style="margin-bottom:6px">1. Focus word for the team</div><div class="row wrap" style="gap:6px">${WORDS.map(w => `<button class="chip word ${g.word === w ? 'on' : ''}" data-act="word" data-w="${w}">${w}</button>`).join('')}</div></div>
@@ -588,14 +588,14 @@ export function practiceGoalSheet(p, onSave, { reason = '' } = {}) {
     <label class="field"><span class="tiny">4. When in practice?</span><input class="input" data-g="when" value="${esc(g.when)}" placeholder="e.g. in the bottom-position live goes"></label>
     <div class="card" style="background:#0d1428"><div class="tiny" style="margin-bottom:6px">Today's goal</div><div id="gprev" style="font-weight:700">${esc(goalText(g)) || '<span class="muted">Fill in the steps above</span>'}</div>
       <div class="smart" id="gchk" style="margin-top:10px">${checks()}</div></div></div>`,
-    footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary lg" data-act="save">Set today's goal</button>`,
+    footer: `${onSkip ? '<button class="btn" data-act="skip">Skip, no goal today</button>' : '<button class="btn" data-act="close">Cancel</button>'}<button class="btn primary lg" data-act="save">Set today's goal</button>`,
     onAction: async (act, el, w, close) => {
+      if (act === 'skip') { close(); return onSkip(); }
       const sync = () => { w.querySelectorAll('[data-g]').forEach(i => { i.value = g[i.dataset.g] || ''; }); w.querySelectorAll('.chip.word').forEach(c => c.classList.toggle('on', c.dataset.w === g.word)); refresh(); };
       if (act === 'word') { g.word = el.dataset.w; sync(); }
       if (act === 'reuse') { Object.assign(g, { word: old.word, what: old.what, measure: old.measure, when: old.when }); sync(); }
       if (act === 'save') {
-        const bad = smartCheck(g).filter(c => !c.ok);
-        if (bad.length) return toast('Not a SMART goal yet: ' + bad.map(c => c.label.split(':')[0]).join(', '), 'error');
+        if (!(g.what || '').trim()) return toast('Type a goal, or tap Skip', 'error');
         const goal = { word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim(), date: today() };
         el.disabled = true;
         try { await onSave(goal); close(); toast('Goal set for today', 'success'); } catch (e) { el.disabled = false; toast(e.code || e.message, 'error'); }
@@ -657,7 +657,7 @@ export async function checkinSummary(site) {
   const R = recs.filter(r => r.date === today());
   const of = (id) => R.find(r => r.athleteId === id);
   return { total: L.length, absent: L.filter(a => of(a.id)?.absent).length, weighed: L.filter(a => typeof of(a.id)?.weight === 'number').length,
-    hereWeighed: L.filter(a => !of(a.id)?.absent && typeof of(a.id)?.weight === 'number').length,
+    hereWeighed: L.filter(a => !of(a.id)?.absent && (typeof of(a.id)?.weight === 'number' || of(a.id)?.checkedIn)).length,
     goals: L.filter(a => of(a.id)?.goal?.what).length };
 }
 
@@ -713,7 +713,7 @@ export async function viewMeets(main, user, id) {
         footer: `<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save">Save</button>`,
         onAction: async (act, el, w, close) => {
           if (act === 'word') { g.word = el.dataset.w; w.querySelectorAll('.chip.word').forEach(c => c.classList.toggle('on', c === el)); w.querySelector('#gp').textContent = goalText(g); w.querySelector('#gc').innerHTML = chk(); }
-          if (act === 'save') { const bad = smartCheck(g).filter(c => !c.ok && c.k !== 'A'); if (bad.length) return toast('Not SMART yet: ' + bad.map(c => c.label.split(':')[0]).join(', '), 'error');
+          if (act === 'save') { if (!(g.what || '').trim()) return toast('Type a goal first', 'error');
             try { await save(a.id, { goal: { word: g.word, what: g.what.trim(), measure: g.measure.trim(), when: g.when.trim() } }); close(); draw(); } catch (err) { toast(err.code || err.message, 'error'); } }
         } });
       m.el.querySelector('.mb').addEventListener('input', (x) => { if (x.target.dataset.g) { g[x.target.dataset.g] = x.target.value; m.el.querySelector('#gp').textContent = goalText(g); m.el.querySelector('#gc').innerHTML = chk(); } });
@@ -744,6 +744,60 @@ export async function viewMeets(main, user, id) {
           }
         } });
     }
+  };
+  draw();
+}
+
+
+// ---- Quick check-in: tap your name, weight (optional), done ---------------------
+export async function viewKiosk(main, user) {
+  if (!can(user, 'edit')) { location.hash = '#/'; return; }
+  main.innerHTML = '<div class="muted">Loading…</div>';
+  const [{ athletes, sites }, recs] = await Promise.all([load(), loadWeights()]);
+  const d = today();
+  let site = sites.some(x => x.id === user.prefs?.site) ? user.prefs.site : 'all', q = '';
+  const list = () => athletes.filter(a => a.active !== false && (site === 'all' || !sites.length || a.site === site));
+  const recOf = (id) => recs.find(r => r.athleteId === id && r.date === d);
+  const done = (id) => { const r = recOf(id); return r && !r.absent && (typeof r.weight === 'number' || r.checkedIn); };
+  const save = async (id, patch) => {
+    const cur = recOf(id) || { athleteId: id, date: d }; const { id: _i, updatedAt, by, ...rest } = cur;
+    const next = { ...rest, ...patch, athleteId: id, date: d, checkedIn: true }; delete next.absent;
+    Object.keys(next).forEach(k => next[k] === undefined && delete next[k]);
+    await store.put('weighins', `${d}_${id}`, next);
+    const k = recs.findIndex(r => r.athleteId === id && r.date === d); const rec = { ...next, id: `${d}_${id}` }; if (k >= 0) recs[k] = rec; else recs.push(rec);
+  };
+  const draw = () => {
+    const L = list().filter(a => !q || `${a.first} ${a.last}`.toLowerCase().includes(q.toLowerCase()));
+    $('#kg').innerHTML = L.map(a => `<button class="kname ${done(a.id) ? 'done' : ''}" data-a="${a.id}"><b>${esc(a.first)}</b><span>${esc(a.last)}</span>${done(a.id) ? `<i>✓${typeof recOf(a.id)?.weight === 'number' ? ' ' + recOf(a.id).weight : ''}</i>` : ''}</button>`).join('')
+      || '<div class="empty" style="grid-column:1/-1">No names. Add girls on the Roster.</div>';
+    const n = list().filter(a => done(a.id)).length; $('#kc').textContent = `${n} of ${list().length} checked in`;
+  };
+  main.innerHTML = `<div class="page-head"><div><h1>Quick check-in</h1><div class="muted small" id="kc"></div></div><a class="btn ghost sm" href="#/weighin">Full check-in list →</a></div>
+    <div class="row wrap" style="gap:8px;margin-bottom:12px"><input class="input" id="kq" placeholder="🔍 Find your name…" style="max-width:320px">
+      ${sites.length ? `<select class="input" id="ks" style="width:auto"><option value="all">All buildings</option>${sites.map(x => `<option value="${x.id}" ${site === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}</div>
+    <div class="kgrid" id="kg"></div>`;
+  $('#kq').oninput = (e) => { q = e.target.value; draw(); };
+  $('#ks') && ($('#ks').onchange = (e) => { site = e.target.value; draw(); });
+  $('#kg').onclick = (e) => {
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    const a = athletes.find(x => x.id === b.dataset.a); const r = recOf(a.id);
+    const m = modal({ title: `Hi, ${a.first}!`, body: `<div class="stack" style="text-align:center">
+        <div class="tiny">Your weight today (optional)</div>
+        <input class="input kw" id="kw" inputmode="decimal" enterkeyhint="done" value="${typeof r?.weight === 'number' ? r.weight : ''}" placeholder="—">
+        <button class="btn go xl" data-act="kdone" style="width:100%">✓ Done</button>
+        <button class="btn ghost" data-act="kmore">＋ How I feel &amp; my goal (optional)</button></div>`,
+      onAction: async (act, el, w, close) => {
+        const v = w.querySelector('#kw').value.trim(); let weight;
+        if (v) { weight = Math.round(parseFloat(v) * 10) / 10; if (!(weight > 0 && weight < 500)) return toast('That weight looks off', 'error'); }
+        if (act === 'kdone' || act === 'kmore') {
+          try { await save(a.id, weight !== undefined ? { weight } : {}); } catch (err) { return toast('Not saved: ' + (err.code || err.message), 'error'); }
+          close(); draw(); $('#kq').value = ''; q = ''; draw();
+          if (act === 'kdone') toast(`${a.first} is checked in`, 'success');
+          else { const tg = await teamGoals(site); goalSheet(a, recOf(a.id), null, tg, async (goal, prevMet, pg, well) => { await save(a.id, { ...(goal ? { goal } : {}), ...well }); draw(); }); }
+        }
+      } });
+    const inp = m.el.querySelector('#kw'); setTimeout(() => inp.focus(), 50);
+    inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); m.el.querySelector('[data-act=kdone]').click(); } };
   };
   draw();
 }

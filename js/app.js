@@ -8,7 +8,7 @@ import { readOnlyPractice, printPractice } from './print.js';
 import { openShare } from './share.js';
 import { runChecks } from './check.js';
 import { openDictate } from './dictate.js';
-import { viewRoster, viewWeighIn, viewLineup, viewSizes, viewPaper, viewCheckins, viewMeets, checkinSummary, goalIsToday, goalText, practiceGoalSheet, publishTeamGoal } from './roster.js';
+import { viewRoster, viewWeighIn, viewLineup, viewSizes, viewPaper, viewCheckins, viewMeets, viewKiosk, checkinSummary, goalIsToday, goalText, practiceGoalSheet, publishTeamGoal } from './roster.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO, OWNER_EMAIL } from './config.js';
 
 const PRESET_VERSION = '3';
@@ -47,7 +47,7 @@ async function route() {
   if (!can(user, 'member')) return viewPending();
   const views = {
     '': viewHome, practices: viewPractices, p: viewPractice, edit: viewEdit, new: viewNew, run: viewRun, live: viewLiveRun,
-    room: viewRoom, now: viewNow, roster: () => { shell('roster', ''); viewRoster($('main'), user); }, weighin: () => { shell('roster', ''); viewWeighIn($('main'), user); }, lineup: () => { shell('roster', ''); viewLineup($('main'), user); }, today: () => { shell('', ''); viewToday(); }, checkins: () => { shell('roster', ''); viewCheckins($('main'), user, id); }, meets: () => { shell('roster', ''); viewMeets($('main'), user, id); }, sizes: () => { shell('roster', ''); viewSizes($('main'), user); }, paper: () => { shell('roster', ''); viewPaper($('main'), user); }, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
+    room: viewRoom, now: viewNow, roster: () => { shell('roster', ''); viewRoster($('main'), user); }, weighin: () => { shell('roster', ''); viewWeighIn($('main'), user); }, lineup: () => { shell('roster', ''); viewLineup($('main'), user); }, today: () => { shell('', ''); viewToday(); }, checkins: () => { shell('roster', ''); viewCheckins($('main'), user, id); }, kiosk: () => { shell('roster', ''); viewKiosk($('main'), user); }, meets: () => { shell('roster', ''); viewMeets($('main'), user, id); }, sizes: () => { shell('roster', ''); viewSizes($('main'), user); }, paper: () => { shell('roster', ''); viewPaper($('main'), user); }, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
   };
   (views[name] || viewHome)(id);
 }
@@ -193,7 +193,7 @@ async function viewHome() {
       <div class="motto" style="justify-content:flex-start">${MOTTO.map(esc).join('<span>•</span>')}</div></div>
       <div class="muted">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
     </div>
-    ${coach ? `<a class="todaybar" href="#/today"><span class="grow"><b>▶ Start today's practice</b><span class="small">Check-in &amp; weigh-in → today's practice → goal → start</span></span><span style="font-size:28px">›</span></a>` : ''}
+    ${coach ? `<a class="todaybar" href="#/today"><span class="grow"><b>▶ Start today's practice</b><span class="small">Check-in → today's practice → start</span></span><span style="font-size:28px">›</span></a>` : ''}
     ${coach ? `<div class="big3">
       <button class="b3 run" data-act="pickrun"><b>▶</b>Run a saved practice</button>
       <a class="b3 new" href="#/new/blank"><b>＋</b>Build a new one</a>
@@ -387,19 +387,19 @@ async function viewToday() {
     <div class="stack">
       ${step(1, 'Check-in, weigh-in & goals', ci && ci.total && ci.hereWeighed + ci.absent >= ci.total,
         `<div class="small muted" style="margin:4px 0 8px">${ci && ci.total ? `${here} here · ${ci.absent} not here · ${ci.weighed} weighed · ${ci.goals} check-ins` : 'No roster yet. Add girls on the Roster first.'}</div>
-         <a class="btn ${ci && ci.total && ci.hereWeighed + ci.absent >= ci.total ? '' : 'primary'}" href="#/weighin">✓ Open check-in</a>`)}
+         <div class="row wrap" style="gap:6px"><a class="btn ${ci && ci.total && ci.hereWeighed + ci.absent >= ci.total ? '' : 'primary'}" href="#/kiosk">⚡ Quick check-in</a><a class="btn" href="#/weighin">Full list</a></div>`)}
       ${step(2, "Today's practice", !!pick,
         pick ? `<div style="margin:4px 0 6px"><b style="text-transform:uppercase">${esc(pick.title)}</b> <span class="small muted">${Math.round(practiceDuration(pick) / 60)} min · ${(pick.blocks || []).length} blocks</span></div>
           ${todays.length > 1 ? `<select class="input" id="tpick" style="width:auto;margin-bottom:8px">${todays.map(p => `<option value="${p.id}" ${p.id === pick.id ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select>` : ''}
           <div class="row wrap" style="gap:6px"><a class="btn sm" href="#/edit/${pick.id}">✎ Edit</a><button class="btn sm ghost" data-act="tchoose">Use a different one</button></div>`
         : `<div class="small muted" style="margin:4px 0 8px">Pick the practice you're running today.</div><div class="row wrap" style="gap:6px"><button class="btn primary" data-act="tchoose">▤ Use a saved practice</button><a class="btn" href="#/new/blank">＋ Build new</a><button class="btn" data-dictate>🎤 Dictate</button></div>`)}
-      ${step(3, "Today's practice goal", pick && goalIsToday(pick),
+      ${step(3, "Today's practice goal (optional)", pick && goalIsToday(pick),
         pick ? (goalIsToday(pick) ? `<div class="small" style="margin-top:4px">🎯 ${esc(goalText(pick.goal))}</div><button class="btn sm ghost" data-act="tgoal" style="margin-top:6px">Change</button>`
-          : `<div class="small muted" style="margin:4px 0 8px">${pick.goal?.what ? `Last goal: ${esc(goalText(pick.goal))}. It's a new day, so set today's.` : 'Required before practice starts.'}</div><button class="btn primary" data-act="tgoal">🎯 Set today's goal</button>`)
+          : `<div class="small muted" style="margin:4px 0 8px">${pick.goal?.what ? `Last goal: ${esc(goalText(pick.goal))}. Set one for today if you want.` : 'Optional.'}</div><button class="btn" data-act="tgoal">🎯 Set today's goal</button>`)
           : '<div class="small muted" style="margin-top:4px">Pick a practice first.</div>')}
       ${step(4, 'Start practice', !!live,
         `<div style="margin-top:8px">${live ? `<a class="btn gold xl" href="#/live/${live.id}" style="width:100%">Open live practice</a>`
-          : `<button class="btn go xl" data-act="tstart" style="width:100%" ${pick && goalIsToday(pick) ? '' : 'disabled'}>▶ Start practice</button>`}</div>`)}
+          : `<button class="btn go xl" data-act="tstart" style="width:100%" ${pick ? '' : 'disabled'}>▶ Start practice</button>`}</div>`)}
     </div>`;
   bindDictate();
   const tp = $('#tpick'); if (tp) tp.onchange = () => { sessionStorage.setItem('today-pick', tp.value); viewToday(); };

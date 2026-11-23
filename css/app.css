@@ -445,3 +445,9 @@ details summary { cursor: pointer; padding: 6px 0; }
 .face span { font-size: 30px; line-height: 1; } .face small { font-size: 10px; color: var(--muted); }
 .face.on { border-color: var(--gold); background: rgba(250,204,21,.12); }
 .flag { display: inline-block; margin-left: 6px; color: #fca5a5; font-weight: 700; }
+.kgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.kname { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 18px 14px; min-height: 84px; border-radius: 18px; border: 2px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; text-align: left; }
+.kname b { font-size: 22px; } .kname span { color: var(--muted); font-weight: 700; }
+.kname.done { border-color: var(--green); background: rgba(34,197,94,.12); }
+.kname i { position: absolute; top: 8px; right: 10px; font-style: normal; color: #86efac; font-weight: 900; font-family: var(--mono); }
+.kw { font-family: var(--mono); font-size: 44px; font-weight: 900; text-align: center; height: 80px; }

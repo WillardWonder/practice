@@ -62,7 +62,7 @@ function drawGoal() {
   const el = $('#b-goal'); if (!el) return;
   const fresh = goalIsToday(P);
   el.innerHTML = `<button class="goalcard ${fresh ? 'ok' : 'need'}" data-act="goal">
-    <span class="tiny">${fresh ? '🎯 Today\'s practice goal' : P.goal?.what ? `🎯 Goal is from ${new Date(P.goal.date + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}. Set today's (required)` : '🎯 Practice goal (required to run)'}</span>
+    <span class="tiny">${fresh ? '🎯 Today\'s practice goal' : P.goal?.what ? `🎯 Goal is from ${new Date(P.goal.date + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}. Set today's (optional)` : '🎯 Practice goal (optional)'}</span>
     <span class="gt">${fresh ? esc(goalText(P.goal)) : P.goal?.what ? `<span class="muted">${esc(goalText(P.goal))}</span>` : 'Tap to set the team\'s SMART goal for this practice'}</span></button>`;
 }
 function openGoal(then) {
@@ -145,7 +145,7 @@ async function onClick(e) {
   switch (act) {
     case 'add': return openAdd();
     case 'run': if (!P.blocks.length) return toast('Add some drills first', 'error');
-      if (!goalIsToday(P)) return openGoal(async () => { location.hash = `#/run/${P.id}`; });
+      await saveNow(true);
       await saveNow(true); location.hash = `#/run/${P.id}`; return;
     case 'goal': return openGoal();
     case 'edit': return openEdit(b);
