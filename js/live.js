@@ -485,10 +485,11 @@ function flowHTML() {
     ${blocks.map((b, bi) => { const st = startOf[bi]; const done = curBlock !== undefined && bi < curBlock || S.clock.done; const now_ = bi === curBlock && !S.clock.done;
       const who = b.type === 'personal' ? (b.stations || []).map(x => `<div class="fw"><b>${esc(x.title)}:</b> ${(x.athletes || []).map(a => esc(a.name)).join(', ') || '—'}</div>`).join('')
         : b.type === 'rotation' ? `<div class="fw">${b.stations.map((x, g) => `${String.fromCharCode(65 + g)}: ${esc(x.title)}`).join(' · ')}</div>` : '';
-      return `<div class="fl ${done ? 'done' : ''} ${now_ ? 'fnow' : ''}" ${st && S.mode !== 'room' && isController() ? `data-act="flow-jump" data-seg="${st.seg}"` : ''}>
+      return `<div class="fl ${done ? 'done' : ''} ${now_ ? 'fnow' : ''}">
         <span class="fd" style="background:${catColor(b.category)}"></span>
         <span class="grow" style="min-width:0"><span class="ft">${esc(b.type === 'rotation' ? (b.title || 'Stations') : b.title)}</span>${who}</span>
-        <span class="fm">${done ? '✓' : now_ ? (remainingMs(S.segs, S.clock) < 0 ? '+' : '') + fmt(Math.abs(remainingMs(S.segs, S.clock) / 1000)) + ' left' : st?.at ? tm(st.at) : ''}<br><span class="muted">${fmtDur(blockDuration(b))}</span></span></div>`; }).join('')}`;
+        <span class="fm">${done ? '✓' : now_ ? `<span class="fbig ${S.clock.running ? '' : 'paused'}">${(remainingMs(S.segs, S.clock) < 0 ? '+' : '') + fmt(Math.abs(remainingMs(S.segs, S.clock) / 1000))}</span>${S.segs[S.clock.segIndex]?.sub ? `<span class="small muted">${esc(S.segs[S.clock.segIndex].sub)}</span>` : ''}` : st?.at ? tm(st.at) : ''}<br><span class="muted">${fmtDur(blockDuration(b))}</span></span></div>`; }).join('')}
+    ${S.mode !== 'room' ? '<div class="small muted" style="text-align:center;margin-top:10px">View only. Tapping here changes nothing. Tap ✕ to go back.</div>' : ''}`;
 }
 function paintFlow() {
   const f = $('#l-flow'); if (!f) return;
@@ -531,7 +532,6 @@ function act(a, el) {
   if (a === 'blocks') return blocksMenu();
   if (a === 'flow') { S.flowOpen = !S.flowOpen; S.flowDirty = true; paintFlow(); return; }
   if (a === 'flow-tv') { if (!isController()) return; const v = !S.run?.showFlow; store.runCommand(S.runId, () => ({ showFlow: v })).then(() => toast(v ? 'Flow is showing on the room TV' : 'Flow hidden on the TV')).catch(e => toast(e.code || e.message, 'error')); return; }
-  if (a === 'flow-jump') { const i = +el.dataset.seg; confirmBox('Jump here?', `Skip to "${S.segs[i]?.title}"?`, 'Jump', false).then(ok => ok && command('jump', i)); return; }
   if (S.mode === 'room') return;
   if (a === 'lock') { S.locked = !S.locked; $('#live').classList.toggle('locked', S.locked); $('#l-lock').textContent = S.locked ? '🔒' : '🔓'; toast(S.locked ? 'Controls locked. Tap 🔒 to unlock.' : 'Unlocked'); return; }
   if (S.locked) return;

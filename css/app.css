@@ -451,3 +451,13 @@ details summary { cursor: pointer; padding: 6px 0; }
 .kname.done { border-color: var(--green); background: rgba(34,197,94,.12); }
 .kname i { position: absolute; top: 8px; right: 10px; font-style: normal; color: #86efac; font-weight: 900; font-family: var(--mono); }
 .kw { font-family: var(--mono); font-size: 44px; font-weight: 900; text-align: center; height: 80px; }
+.fl.fnow .fm { color: var(--gold); }
+.fbig { display: block; font-family: var(--mono); font-weight: 900; font-size: 30px; line-height: 1; color: var(--gold); }
+.fbig.paused { opacity: .5; }
+.live.room .fbig { font-size: clamp(26px, 2.6vw, 44px); }
+@media (max-width: 560px) {
+  .live .lt { font-size: 11px; letter-spacing: .04em; }
+  .live .lt .small { display: none; }
+  .live .sched { display: none; }
+  .live .flow { top: 52px; bottom: 150px; right: 8px; left: 8px; width: auto; }
+}
