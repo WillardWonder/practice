@@ -63,11 +63,23 @@ export function parseWeighins(text, athletes) {
 }
 
 export const speechSupported = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+// One phrase per recognition session, restarted until the coach taps stop. Continuous mode on
+// Android Chrome repeats words ("kenzie kenzie 121 kenzie 121"), so it isn't used.
 export function listen({ onText, onEnd }) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; const r = new SR();
-  r.lang = 'en-US'; r.continuous = true; r.interimResults = true;
-  let finalText = '';
-  r.onresult = (e) => { let interim = ''; for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) finalText += ' ' + t; else interim += ' ' + t; } onText((finalText + ' ' + interim).trim()); };
-  r.onerror = (e) => onEnd(e.error); r.onend = () => onEnd();
-  r.start(); return r;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let committed = '', stopped = false, r = null, lastErr = null, quiet = 0;
+  const start = () => {
+    r = new SR(); r.lang = 'en-US'; r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;
+    let phrase = '';
+    r.onresult = (e) => { const res = e.results[e.results.length - 1]; phrase = res[0].transcript.trim();
+      quiet = 0;
+      if (res.isFinal) { committed = (committed + ' ' + phrase).trim(); phrase = ''; }
+      onText((committed + ' ' + phrase).trim()); };
+    r.onerror = (e) => { lastErr = e.error; if (e.error === 'no-speech' && ++quiet >= 2) stopped = true; if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture') stopped = true; };
+    r.onend = () => { if (phrase) { committed = (committed + ' ' + phrase).trim(); phrase = ''; onText(committed); }
+      if (!stopped) { lastErr = null; try { start(); return; } catch { /* fall through */ } } onEnd(lastErr); };
+    r.start();
+  };
+  start();
+  return { stop: () => { stopped = true; try { r.stop(); } catch { onEnd(); } } };
 }
