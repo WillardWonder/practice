@@ -169,6 +169,13 @@ async function startRun() {
   if (S.practice.dictation) store.saveExample({ practiceId: S.practice.id, transcript: S.practice.dictation, title: S.practice.title,
     blocks: S.practice.blocks.map(b => ({ type: b.type, title: b.title, category: b.category, minutes: Math.round(blockDuration(b) / 6) / 10, drillId: b.drillId || null,
       rounds: b.rounds, workSec: b.workSec, restSec: b.restSec, stations: b.stations?.map(x => x.title), mode: b.mode })) }).catch(() => {});
+  // Snapshot today's check-in onto the run, so the practice record has attendance even if the end screen is never saved.
+  try {
+    const [ath, w] = await Promise.all([store.list('athletes'), store.list('weighins', ['date', '==', run.date])]);
+    const ros = ath.filter(a => a.active !== false && (!site || !a.site || a.site === site));
+    if (ros.length) { const inn = new Set(w.filter(isHere).map(x => x.athleteId));
+      run.attendance = ros.filter(a => inn.has(a.id)).length; run.absent = ros.filter(a => !inn.has(a.id)).map(a => `${a.first} ${a.last}`).sort(); }
+  } catch {}
   try {
     S.runId = await store.createRun(run);
   } catch (e) { toast('Could not start: ' + (e.code || e.message), 'error'); return; }

@@ -565,7 +565,8 @@ async function viewRunDetail(id) {
           <textarea class="input" id="nt" rows="5" placeholder="What worked, what to change…">${esc(r.notes || '')}</textarea><button class="btn primary" id="sv">Save reflection</button>
           <div class="small muted">The plan and the block log are locked. Only the reflection can be edited.</div>`
           : `<p>${esc(r.notes || 'No notes.')}</p><div class="small muted">${r.attendance ? r.attendance + ' wrestlers' : ''} ${r.rating ? '★'.repeat(r.rating) : ''}</div>`}
-        ${r.absent?.length ? `<div class="small"><b>Not here:</b> ${r.absent.map(esc).join(', ')}</div>` : ''}
+        ${r.absent?.length ? `<div class="small"><b>Absent:</b> ${r.absent.map(esc).join(', ')}</div>` : ''}
+        ${coach && r.date ? `<a class="btn sm" href="#/checkins/${r.date}">✓ Check-in for this day: weights &amp; goals ›</a>` : ''}
       </div>
     </div>
     <div class="section-title">Plan as it was run</div>${readOnlyPractice({ ...r.practice, levels: r.levels })}`;
