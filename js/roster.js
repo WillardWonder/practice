@@ -68,18 +68,6 @@ export async function viewRoster(main, user) {
       onAction: (act, el, w, close) => { close(); if (act === 'one') editAthlete(null, sites, weights, () => viewRoster(main, user)); if (act === 'many') pasteList(sites, user, () => viewRoster(main, user)); } });
     $('#tgoals').onclick = async () => { const tg = await teamGoals(rFilter.site || user.prefs?.site); editTeamGoals(tg, () => toast('Team goals saved', 'success')); };
     $('#csv').onclick = () => exportCsv(athletes, weights, sites);
-    if ($('#qa')) $('#qa').onsubmit = async (e) => {
-      e.preventDefault();
-      const cap = (x) => x.trim().replace(/\s+/g, ' ').replace(/(^|[\s'-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
-      const first = cap($('#qf').value), last = cap($('#ql').value), grade = $('#qg').value;
-      if (!first || !last) return toast('First and last name, please', 'error');
-      if (athletes.some(a => a.first.toLowerCase() === first.toLowerCase() && a.last.toLowerCase() === last.toLowerCase())) return toast(`${first} ${last} is already on the roster`, 'error');
-      const site = rFilter.site && rFilter.site !== 'all' ? rFilter.site : (user.prefs?.site || '');
-      try { const id = await store.put('athletes', null, { first, last, grade, nick: '', level: '', site, active: true }); athletes.push({ id, first, last, grade, site, active: true }); athletes.sort(sortAth); toast(`Added ${first} ${last}`, 'success'); }
-      catch (err) { return toast('Not saved: ' + (err.code || err.message), 'error'); }
-      $('#qf').value = ''; $('#ql').value = ''; $('#qg').value = ''; $('#qf').focus(); draw();
-    };
-    if ($('#ql')) $('#ql').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#qa').requestSubmit(); } };
   }
   draw();
 }
@@ -459,6 +447,22 @@ function editTeamGoals(tg, done) {
 // ---- Team photo: shrunk to ~300 KB and saved in Firestore (lineupphotos/{id}),
 // so every coach can open it and keep tagging on any device. Tags live in lineups/{id}.
 const lineupId = (site) => `photo-${site && site !== 'all' ? site : 'team'}`;
+// One caption builder for the Team photo page and the Newspaper page.
+function buildCaption(L, athletes, sites) {
+  const names = ROW_NAMES(L.rowsCount);
+  const parts = L.rows.map((r, i) => r.length ? `${names[i]}${L.rowsCount > 1 ? ', from left' : ''}: ${r.map(x => x.name).join(', ')}` : '').filter(Boolean);
+  const placed = new Set(L.rows.flat().filter(x => x.id).map(x => x.id));
+  const pool = athletes.filter(a => a.active !== false && (!L.site || L.site === 'all' || !sites.length || a.site === L.site));
+  const missing = L.notPictured ? pool.filter(a => !placed.has(a.id)).map(full) : [];
+  return (L.team ? `${L.team}. ` : '') + parts.join('. ') + (parts.length ? '.' : '') + (missing.length ? ` Not pictured: ${missing.join(', ')}.` : '') + (L.photographer ? ` (Photo by ${L.photographer})` : '');
+}
+// The newest saved lineup: the shared database first, this phone's copy as a fallback.
+async function loadLineup(site) {
+  let L = null; try { L = JSON.parse(localStorage.getItem('practice-lineup') || 'null'); } catch (e) {}
+  try { const all = await store.list('lineups'); const saved = all.find(x => x.id === lineupId(site)) || all.find(x => x.state) ;
+    if (saved?.state && (!L || (saved.updatedAt || 0) > (L.savedAt || 0))) L = { ...saved.state, savedAt: saved.updatedAt }; } catch (e) {}
+  return L;
+}
 // Tries four ways to read a photo so any phone's picture works (big Android photos,
 // rotated photos, cloud-gallery files, blob URLs blocked, Safari HEIC).
 let decodeVia = '';
@@ -555,14 +559,7 @@ export async function viewLineup(main, user) {
   L ||= { title: 'Team photo', rowsCount: 3, rows: [[], [], []], cur: 0, site: sites.some(s => s.id === user.prefs?.site) ? user.prefs.site : 'all', notPictured: true, extras: [] };
   const pool = () => athletes.filter(a => a.active !== false && (L.site === 'all' || !sites.length || a.site === L.site));
   const placed = () => new Set(L.rows.flat().filter(x => x.id).map(x => x.id));
-  const caption = () => {
-    const names = ROW_NAMES(L.rowsCount);
-    const parts = L.rows.map((r, i) => r.length ? `${names[i]}${L.rowsCount > 1 ? ', from left' : ''}: ${r.map(x => x.name).join(', ')}` : '').filter(Boolean);
-    const missing = L.notPictured ? pool().filter(a => !placed().has(a.id)).map(full) : [];
-    const head = L.team ? `${L.team}. ` : '';
-    const credit = L.photographer ? ` (Photo by ${L.photographer})` : '';
-    return head + parts.join('. ') + (parts.length ? '.' : '') + (missing.length ? ` Not pictured: ${missing.join(', ')}.` : '') + credit;
-  };
+  const caption = () => buildCaption(L, athletes, sites);
   L.tags ||= [];
   let shareT = null;
   const saveShared = () => { clearTimeout(shareT); shareT = setTimeout(async () => { L.savedAt = Date.now(); const { savedAt, ...state } = L;
@@ -830,7 +827,7 @@ export async function viewPaper(main, user) {
   const pid = `${pTeam}-2026-27`;
   const P = { ...Object.fromEntries(PFIELDS.map(f => [f[0], f[3]])), ...(profiles.find(x => x.id === pid) || {}) };
   const roster = athletes.filter(a => a.active !== false && (!sites.length || a.site === pTeam));
-  let lineup = null; try { lineup = JSON.parse(localStorage.getItem('practice-lineup') || 'null'); } catch (e) {}
+  const lineup = await loadLineup(pTeam);
   const text = () => {
     const out = [`${new Date().getFullYear()}-${String(new Date().getFullYear() + 1).slice(2)} Merrill Foto News Winter Sports Preview`, ''];
     PFIELDS.forEach(([k, label]) => { out.push(`${label.split(':')[0].replace(/\s*\(.*\)$/, '')}: ${(P[k] || '').trim()}`, ''); });
@@ -853,9 +850,8 @@ export async function viewPaper(main, user) {
       <div class="small muted" style="margin-top:6px">To: tscott@mmclocal.com. Attach the team photo, and paste the text if your email app cuts it short.</div></div>`;
   $('#pf').oninput = (e) => { const k = e.target.dataset.k; if (k) { P[k] = e.target.value; save(); } };
   $$('[data-team]').forEach(b => b.onclick = () => { pTeam = b.dataset.team; viewPaper(main, user); });
-  $('#pcap').onclick = () => { const c = lineup ? (() => { const n = ROW_NAMES(lineup.rowsCount); const parts = lineup.rows.map((r, i) => r.length ? `${n[i]}${lineup.rowsCount > 1 ? ', from left' : ''}: ${r.map(x => x.name).join(', ')}` : '').filter(Boolean);
-      return (lineup.team ? lineup.team + '. ' : '') + parts.join('. ') + (parts.length ? '.' : '') + (lineup.photographer ? ` (Photo by ${lineup.photographer})` : ''); })() : '';
-    if (!c) return toast('Make the caption first: Roster → Photo caption', 'error');
+  $('#pcap').onclick = () => { const c = lineup ? buildCaption(lineup, athletes, sites) : '';
+    if (!c) return toast('Make the caption first: Team → Team photo', 'error');
     P.caption = c; $('[data-k=caption]').value = c; save(); };
   $$('[data-pick]').forEach(b => b.onclick = () => {
     const k = b.dataset.pick; let q = '';

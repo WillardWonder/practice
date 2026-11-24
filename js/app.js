@@ -50,6 +50,8 @@ async function route() {
   if (tabletOn() && can(user, 'edit')) { if (name !== 'tablet') history.replaceState(null, '', '#/tablet'); app.innerHTML = ''; return viewTablet(app); }
   if (name === 'tablet') return can(user, 'edit') ? (location.hash = '#/weighin') : (location.hash = '#/');
   if (name === '' && can(user, 'edit')) { shell('', ''); return viewToday(); }
+  // Athletes only get Home, Practices and Live; the roster, weights and history are staff-only.
+  if (user.role === 'athlete' && ['roster', 'weighin', 'checkins', 'meets', 'lineup', 'phototest', 'sizes', 'paper', 'kiosk', 'history', 'library', 'admin', 'today', 'edit', 'new', 'run'].includes(name)) { location.replace('#/'); return; }
   const views = {
     '': viewHome, practices: viewPractices, p: viewPractice, edit: viewEdit, new: viewNew, run: viewRun, live: viewLiveRun,
     room: viewRoom, now: viewNow, roster: () => { shell('roster', ''); viewRoster($('main'), user); }, weighin: () => { shell('roster', ''); viewWeighIn($('main'), user); }, lineup: () => { shell('roster', ''); viewLineup($('main'), user); }, phototest: () => { shell('roster', ''); viewPhotoTest($('main'), user); }, today: () => { shell('', ''); viewToday(); }, checkins: () => { shell('roster', ''); viewCheckins($('main'), user, id); }, kiosk: () => { shell('roster', ''); viewKiosk($('main'), user); }, meets: () => { shell('roster', ''); viewMeets($('main'), user, id); }, sizes: () => { shell('roster', ''); viewSizes($('main'), user); }, paper: () => { shell('roster', ''); viewPaper($('main'), user); }, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
