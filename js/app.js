@@ -386,8 +386,8 @@ async function viewToday() {
   main.innerHTML = `<div class="page-head"><div><h1>Today</h1><div class="muted small">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}${sites.find(x => x.id === site) ? ' · ' + esc(sites.find(x => x.id === site).name) : ''}</div></div></div>
     <div class="stack">
       ${step(1, 'Check-in, weigh-in & goals', ci && ci.total && ci.hereWeighed + ci.absent >= ci.total,
-        `<div class="small muted" style="margin:4px 0 8px">${ci && ci.total ? `${here} here · ${ci.absent} not here · ${ci.weighed} weighed · ${ci.goals} check-ins` : 'No roster yet. Add girls on the Roster first.'}</div>
-         <div class="row wrap" style="gap:6px"><a class="btn ${ci && ci.total && ci.hereWeighed + ci.absent >= ci.total ? '' : 'primary'}" href="#/kiosk">⚡ Quick check-in</a><a class="btn" href="#/weighin">Full list</a></div>`)}
+        `<div class="small muted" style="margin:4px 0 8px">${ci && ci.total ? `${ci.hereWeighed} checked in · ${ci.total - ci.hereWeighed - ci.absent} not yet · ${ci.absent} absent` : 'No roster yet. Tap Open check-in, then ＋ New girl.'}</div>
+         <a class="btn ${ci && ci.total && ci.hereWeighed + ci.absent >= ci.total ? '' : 'primary'}" href="#/weighin">✓ Open check-in</a>`)}
       ${step(2, "Today's practice", !!pick,
         pick ? `<div style="margin:4px 0 6px"><b style="text-transform:uppercase">${esc(pick.title)}</b> <span class="small muted">${Math.round(practiceDuration(pick) / 60)} min · ${(pick.blocks || []).length} blocks</span></div>
           ${todays.length > 1 ? `<select class="input" id="tpick" style="width:auto;margin-bottom:8px">${todays.map(p => `<option value="${p.id}" ${p.id === pick.id ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select>` : ''}

@@ -723,7 +723,8 @@ function showSummary() {
   let roster = [], absent = new Set(), recs = [];
   Promise.all([store.list('athletes'), store.list('weighins', ['date', '==', dstr])]).then(([ath, w]) => {
     recs = w; roster = ath.filter(a => a.active !== false && (!r.site || !a.site || a.site === r.site)).sort((x, y) => (x.last || '').localeCompare(y.last || ''));
-    w.filter(x => x.absent).forEach(x => absent.add(x.athleteId)); paintAtt();
+    const inToday = new Set(w.filter(x => !x.absent && typeof x.weight === 'number').map(x => x.athleteId));
+    roster.forEach(a => { if (!inToday.has(a.id)) absent.add(a.id); }); paintAtt();
   }).catch(() => { const el = div.querySelector('#d-roster'); if (el) el.innerHTML = '<span class="small muted">Roster not available.</span>'; });
   const paintAtt = () => {
     const el = div.querySelector('#d-roster'); if (!el) return;

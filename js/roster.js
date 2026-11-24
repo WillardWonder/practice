@@ -202,20 +202,23 @@ export async function teamGoals(site) {
 }
 
 let wDate = null, wSite = null;
+// Check-in: a girl is checked in when her weight is recorded. Tap her name, type the weight, save.
 export async function viewWeighIn(main, user) {
   if (!can(user, 'edit')) { location.hash = '#/roster'; return; }
   main.innerHTML = '<div class="muted">Loading…</div>';
   const [{ athletes, sites }, recs] = await Promise.all([load(), loadWeights()]);
   wDate ||= today();
   if (wSite === null) wSite = sites.some(s => s.id === user.prefs?.site) ? user.prefs.site : 'all';
-  let tg = await teamGoals(wSite);
+  let tg = await teamGoals(wSite), q = '';
   const list = () => athletes.filter(a => a.active !== false && (wSite === 'all' || !sites.length || a.site === wSite));
   const recOf = (id, date = wDate) => recs.find(w => w.athleteId === id && w.date === date);
+  const isIn = (id) => typeof recOf(id)?.weight === 'number' && !recOf(id)?.absent;
+  const isOut = (id) => !!recOf(id)?.absent;
   const prevW = (id) => recs.filter(w => w.athleteId === id && w.date < wDate && typeof w.weight === 'number').sort((x, y) => y.date.localeCompare(x.date))[0];
   const prevGoal = (id) => recs.filter(w => w.athleteId === id && w.date < wDate && w.goal?.what).sort((x, y) => y.date.localeCompare(x.date))[0];
   const saveRec = async (id, patch) => {
     const cur = recOf(id) || { athleteId: id, date: wDate };
-    const next = { ...cur, ...patch }; delete next.id; delete next.updatedAt; delete next.by;
+    const next = { ...cur, ...patch }; delete next.id; delete next.updatedAt; delete next.by; delete next.checkedIn;
     Object.keys(next).forEach(k => next[k] === undefined && delete next[k]);
     const docId = `${wDate}_${id}`;
     await store.put('weighins', docId, next);
@@ -223,79 +226,114 @@ export async function viewWeighIn(main, user) {
     if (k >= 0) recs[k] = rec; else recs.push(rec);
     return rec;
   };
-  const rowHTML = (a, i) => { const r = recOf(a.id), p = prevW(a.id), off = !!r?.absent, has = typeof r?.weight === 'number';
-    return `<div class="wrow ${off ? 'off' : ''}" data-a="${a.id}">
-      <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)} ${off ? '<span class="badge red">Not here</span>' : '<span class="badge green">Here</span>'}</div>
-        <div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)})` : 'No previous weigh-in'}${r?.goal?.what ? ` · 🎯 <b style="color:#93c5fd">${esc(r.goal.word)}</b>` : ''}${flags(r)}</div></div>
-      ${off ? '' : `<button class="btn sm ${r?.goal?.what ? 'primary' : ''}" data-act="goal">${r?.feel ? FACES[r.feel - 1] : '🎯'}${r?.goal?.what || r?.feel ? '' : ' Goal'}</button>`}
-      <span class="wd" id="d-${a.id}">${has && p ? diffHTML(r.weight - p.weight) : ''}</span>
-      ${has ? `<span class="wlock" title="Saved">${r.weight}<button class="btn ghost sm" data-act="wedit" aria-label="Change weight">✎</button></span>`
-        : off ? `<button class="btn sm ghost" data-act="wedit" title="Weighed in separately">＋ Weight</button>` : `<input class="input wi" inputmode="decimal" enterkeyhint="next" data-i="${i}" value="" placeholder="—" aria-label="Weight">`}
-      <button class="btn sm ${off ? 'go' : 'ghost'}" data-act="absent">${off ? 'Mark here' : 'Not here'}</button></div>`; };
-  const draw = () => { const L = list(); $('#wl').innerHTML = L.length ? L.map(rowHTML).join('') : `<div class="empty">No active wrestlers${wSite !== 'all' ? ' in this building' : ''}. Add them on the <a href="#/roster">Roster</a>.</div>`; count(); };
-  const count = () => { const L = list(); const abs = L.filter(a => recOf(a.id)?.absent).length; const w = L.filter(a => typeof recOf(a.id)?.weight === 'number').length; const g = L.filter(a => recOf(a.id)?.goal?.what).length;
-    const low = L.filter(a => (recOf(a.id)?.feel || 5) <= 2 || (recOf(a.id)?.sleepHrs && recOf(a.id).sleepHrs <= 6)).length;
-    $('#wc').innerHTML = `${L.length - abs} here · ${abs} not here · ${w} weighed · ${g} check-ins${low ? ` · <span style="color:#fca5a5">${low} to check on</span>` : ''}`; };
+  const match = (a) => !q || `${a.first} ${a.last} ${a.nick || ''}`.toLowerCase().includes(q.toLowerCase());
   const goalsCard = () => `<div class="card stack" style="margin-bottom:12px"><div class="row between"><b>🏆 Team goals</b><button class="btn sm" data-act="tgedit">Edit</button></div>
     <div class="small"><span class="tiny">Today</span><br>${esc(tg.day) || '<span class="muted">Not set yet</span>'}</div>
     ${tg.mid ? `<div class="small"><span class="tiny">Mid-season</span><br>${esc(tg.mid)}</div>` : ''}
     <div class="small"><span class="tiny">Season</span><br>${esc(tg.season) || '<span class="muted">Not set yet</span>'}</div></div>`;
-  main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="muted small" id="wc"></div></div><div class="row wrap" style="gap:6px"><a class="btn sm" href="#/kiosk">⚡ Quick check-in</a><a class="btn ghost sm" href="#/checkins">◷ History</a><a class="btn go sm" href="#/today">Next: practice →</a></div></div>
+  const draw = () => {
+    const L = list(), waiting = L.filter(a => !isIn(a.id) && !isOut(a.id)), inn = L.filter(a => isIn(a.id)), out = L.filter(a => isOut(a.id));
+    $('#wc').innerHTML = `<b style="color:#86efac">${inn.length} checked in</b> · ${waiting.length} not yet · ${out.length} absent`;
+    $('#wwait').innerHTML = waiting.filter(match).map(a => `<button class="kname" data-a="${a.id}" data-act="weigh"><b>${esc(a.first)}</b><span>${esc(a.last)}</span></button>`).join('')
+      || `<div class="small muted" style="grid-column:1/-1">${waiting.length ? 'No one matches.' : L.length ? '✓ Everyone is checked in or marked absent.' : 'No girls on the roster yet. Tap ＋ New girl.'}</div>`;
+    $('#win').innerHTML = inn.filter(match).map(a => { const r = recOf(a.id), p = prevW(a.id); return `<div class="wrow" data-a="${a.id}">
+        <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)}</div><div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)}) ` : 'First weigh-in '}${p ? diffHTML(r.weight - p.weight) : ''}${flags(r)}</div></div>
+        <button class="btn sm ${r?.goal?.what || r?.feel ? 'primary' : ''}" data-act="goal" title="How I feel & my goal (optional)">${r?.feel ? FACES[r.feel - 1] : '🎯'}</button>
+        <button class="wlock" data-act="weigh" title="Change weight">${r.weight} ✎</button></div>`; }).join('') || '<div class="small muted">No one yet.</div>';
+    $('#wout').innerHTML = out.filter(match).map(a => `<div class="wrow off" data-a="${a.id}"><div class="grow"><div class="an">${esc(a.first)} ${esc(a.last)}</div></div><button class="btn sm" data-act="weigh">She's here</button></div>`).join('') || '<div class="small muted">No one.</div>';
+    $('#wrest').classList.toggle('hidden', !waiting.length);
+  };
+  main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="small" id="wc"></div></div>
+      <div class="row wrap" style="gap:6px"><a class="btn ghost sm" href="#/checkins">◷ History</a><a class="btn go sm" href="#/today">Next: practice →</a></div></div>
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
+      <input class="input" id="wq" placeholder="🔍 Find a name…" style="max-width:280px" autocomplete="off">
+      <button class="btn primary" data-act="newgirl">＋ New girl</button>
       <input type="date" class="input" id="wdt" value="${wDate}" style="width:auto">
       ${sites.length ? `<select class="input" id="wst" style="width:auto"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
-      <button class="btn ghost sm" id="wcsv">⬇ Export this day</button></div>
-    <div id="tgc">${goalsCard()}</div>
-    <div class="small muted" style="margin-bottom:8px">Everyone starts as here. Tap <b>Not here</b> for anyone missing. Type a weight and hit Enter to jump to the next girl. Goals and how-I-feel are optional (🎯). For a fast line, use <a href="#/kiosk">⚡ Quick check-in</a>.</div>
-    <div class="plist" id="wl"></div>`;
+    </div>
+    <div class="section-title" style="margin-top:4px">Not checked in yet <span class="muted" style="font-weight:600;letter-spacing:0;text-transform:none">· tap her name, enter her weight</span></div>
+    <div class="kgrid" id="wwait"></div>
+    <button class="btn ghost sm hidden" id="wrest" data-act="restout" style="margin-top:8px">Mark everyone left as absent</button>
+    <div class="section-title">✓ Checked in</div><div class="plist" id="win"></div>
+    <div class="section-title">Absent</div><div class="plist" id="wout"></div>
+    <div class="section-title">Team goals</div><div id="tgc">${goalsCard()}</div>
+    <button class="btn ghost sm" id="wcsv">⬇ Export this day</button>`;
+  $('#wq').oninput = (e) => { q = e.target.value; draw(); };
   $('#wdt').onchange = (e) => { wDate = e.target.value || today(); draw(); };
   $('#wst') && ($('#wst').onchange = async (e) => { wSite = e.target.value; tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); draw(); });
   $('#wcsv').onclick = () => {
-    const rows = [['last', 'first', 'date', 'here', 'weight', 'change', 'feeling_1to5', 'sleep_hrs', 'sleep', 'fruit_veg', 'milk', 'goal_word', 'goal', 'last_goal_met']].concat(list().map(a => { const r = recOf(a.id), p = prevW(a.id);
-      return [a.last, a.first, wDate, r?.absent ? 'no' : 'yes', r?.weight ?? '', typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : '', r?.feel || '', r?.sleepHrs || '', r?.sleepQ || '', r?.fruitVeg ?? '', r?.milk ?? '', r?.goal?.word || '', goalText(r?.goal), r?.prevMet ?? '']; }));
+    const rows = [['last', 'first', 'date', 'status', 'weight', 'change', 'feeling_1to5', 'sleep_hrs', 'sleep', 'fruit_veg', 'milk', 'goal_word', 'goal', 'last_goal_met']].concat(list().map(a => { const r = recOf(a.id), p = prevW(a.id);
+      return [a.last, a.first, wDate, isOut(a.id) ? 'absent' : isIn(a.id) ? 'checked in' : 'not checked in', r?.weight ?? '', typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : '', r?.feel || '', r?.sleepHrs || '', r?.sleepQ || '', r?.fruitVeg ?? '', r?.milk ?? '', r?.goal?.word || '', goalText(r?.goal), r?.prevMet ?? '']; }));
     download(`check-in-${wDate}.csv`, rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   };
-  const saveWeight = async (inp) => {
-    if (!inp.isConnected || inp.dataset.saving) return; inp.dataset.saving = '1';
-    const id = inp.closest('[data-a]').dataset.a; const v = inp.value.trim();
-    if (!v) { delete inp.dataset.saving; return; }
-    if (!v) { if (typeof recOf(id)?.weight === 'number') { await saveRec(id, { weight: undefined }).catch(() => {}); inp.classList.remove('saved'); count(); } return; }
-    const n = Math.round(parseFloat(v) * 10) / 10;
-    if (!(n > 0 && n < 500)) { delete inp.dataset.saving; inp.classList.add('bad'); return toast('That weight looks off', 'error'); }
-    inp.classList.remove('bad');
-    try { await saveRec(id, { weight: n }); const row = inp.closest('[data-a]'); const a = athletes.find(x => x.id === id); row.outerHTML = rowHTML(a, list().indexOf(a)); count(); }
-    catch (e) { delete inp.dataset.saving; toast('Not saved: ' + (e.code || e.message), 'error'); }
+
+  // Weigh one girl: big weight box. Saving the weight = checked in.
+  const weighSheet = (a) => {
+    const r = recOf(a.id), p = prevW(a.id);
+    const m = modal({ title: `${a.first} ${a.last}`, body: `<div class="stack" style="text-align:center">
+        <div class="tiny">Weight</div>
+        <input class="input kw" id="ww" inputmode="decimal" enterkeyhint="done" value="${typeof r?.weight === 'number' ? r.weight : ''}" placeholder="—" autocomplete="off">
+        <div class="small muted">${p ? `Last: ${p.weight} on ${fmtDate(p.date)}` : 'First weigh-in'}</div>
+        <button class="btn go xl" data-act="wsave" style="width:100%">✓ Check in</button>
+        <button class="btn ghost" data-act="wmore">✓ Check in + how I feel &amp; my goal (optional)</button>
+        <button class="btn ghost sm" data-act="wabs" style="color:#fca5a5">${isOut(a.id) ? 'Keep her absent' : 'Mark absent instead'}</button></div>`,
+      onAction: async (act, el, w, close) => {
+        if (act === 'wabs') { try { await saveRec(a.id, { absent: true }); close(); draw(); } catch (e) { toast(e.code || e.message, 'error'); } return; }
+        const n = Math.round(parseFloat(w.querySelector('#ww').value) * 10) / 10;
+        if (!(n > 0 && n < 500)) { w.querySelector('#ww').focus(); return toast('Type her weight to check her in', 'error'); }
+        try { await saveRec(a.id, { weight: n, absent: undefined }); } catch (e) { return toast('Not saved: ' + (e.code || e.message), 'error'); }
+        close(); q = ''; $('#wq').value = ''; draw(); toast(`${a.first} checked in at ${n}`, 'success');
+        if (act === 'wmore') openGoal(a);
+      } });
+    const inp = m.el.querySelector('#ww'); setTimeout(() => { inp.focus(); inp.select(); }, 60);
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); m.el.querySelector('[data-act=wsave]').click(); } };
   };
-  $('#wl').addEventListener('change', (e) => { if (e.target.matches('.wi') && !e.target.dataset.saving) saveWeight(e.target); });
-  $('#wl').addEventListener('keydown', (e) => {
-    if (!e.target.matches('.wi') || e.key !== 'Enter') return;
-    e.preventDefault(); const from = +e.target.dataset.i;
-    saveWeight(e.target).then(() => { const nx = [...document.querySelectorAll('.wi')].find(x => +x.dataset.i > from); if (nx) { nx.focus(); nx.select(); } });
+  const openGoal = (a) => goalSheet(a, recOf(a.id), prevGoal(a.id), tg, async (goal, prevMet, pg, well) => {
+    await saveRec(a.id, { ...(goal ? { goal } : {}), ...well, ...(prevMet !== null ? { prevMet } : {}) });
+    if (pg && prevMet !== null) { const { id, updatedAt, by, ...rest } = pg; await store.put('weighins', pg.id, { ...rest, met: prevMet }).catch(() => {}); pg.met = prevMet; }
+    draw();
   });
+  // New girl: added to the roster AND checked in, in one step.
+  const newGirl = () => {
+    const m = modal({ title: 'New girl', body: `<div class="stack">
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:8px"><label class="field"><span class="tiny">First name</span><input class="input" id="nf" autocapitalize="words" autocomplete="off"></label>
+          <label class="field"><span class="tiny">Last name</span><input class="input" id="nl" autocapitalize="words" autocomplete="off"></label></div>
+        <label class="field"><span class="tiny">Grade</span><select class="input" id="ng"><option value=""></option>${GRADES.map(g => `<option>${g}</option>`).join('')}</select></label>
+        <label class="field" style="text-align:center"><span class="tiny">Weight today</span><input class="input kw" id="nw" inputmode="decimal" placeholder="—"></label>
+        <div class="small muted">Ask her to spell her name. She's added to the roster and checked in.</div></div>`,
+      footer: `<button class="btn" data-act="close">Cancel</button><button class="btn go lg" data-act="nsave">✓ Add &amp; check in</button>`,
+      onAction: async (act, el, w, close) => {
+        if (act !== 'nsave') return;
+        const capw = (x) => x.trim().replace(/\s+/g, ' ').replace(/(^|[\s'-])([a-z])/g, (mm, p1, p2) => p1 + p2.toUpperCase());
+        const first = capw(w.querySelector('#nf').value), last = capw(w.querySelector('#nl').value), grade = w.querySelector('#ng').value;
+        const n = Math.round(parseFloat(w.querySelector('#nw').value) * 10) / 10;
+        if (!first || !last) return toast('First and last name, please', 'error');
+        if (!(n > 0 && n < 500)) return toast('Type her weight', 'error');
+        let a = athletes.find(x => x.first.toLowerCase() === first.toLowerCase() && x.last.toLowerCase() === last.toLowerCase());
+        el.disabled = true;
+        try {
+          if (!a) { const site = wSite !== 'all' ? wSite : (user.prefs?.site || ''); const id = await store.put('athletes', null, { first, last, grade, nick: '', level: '', site, active: true }); a = { id, first, last, grade, site, active: true }; athletes.push(a); athletes.sort(sortAth); }
+          await saveRec(a.id, { weight: n, absent: undefined });
+          close(); draw(); toast(`${first} ${last} added and checked in at ${n}`, 'success');
+        } catch (e) { el.disabled = false; toast('Not saved: ' + (e.code || e.message), 'error'); }
+      } });
+    setTimeout(() => m.el.querySelector('#nf').focus(), 60);
+  };
   main.onclick = async (e) => {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
     if (b.dataset.act === 'tgedit') return editTeamGoals(tg, async () => { tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); });
-    const row = b.closest('[data-a]'); if (!row) return;
-    const a = athletes.find(x => x.id === row.dataset.a);
-    if (b.dataset.act === 'absent') {
-      const off = !recOf(a.id)?.absent;
-      if (off && typeof recOf(a.id)?.weight === 'number' && !(await confirmBox(`Mark ${a.first} not here?`, `She already weighed in today (${recOf(a.id).weight}). Her weight stays saved.`, 'Mark not here', false))) return;
-      try { await saveRec(a.id, { absent: off || undefined }); row.outerHTML = rowHTML(a, list().indexOf(a)); count(); } catch (err) { toast(err.code || err.message, 'error'); }
+    if (b.dataset.act === 'newgirl') return newGirl();
+    if (b.dataset.act === 'restout') {
+      const rest = list().filter(a => !isIn(a.id) && !isOut(a.id));
+      if (!(await confirmBox('Mark the rest absent?', `${rest.length} girl${rest.length === 1 ? '' : 's'} who didn't weigh in will be marked absent for ${fmtDate(wDate)}.`, 'Mark absent', false))) return;
+      try { for (const a of rest) await saveRec(a.id, { absent: true }); draw(); } catch (err) { toast(err.code || err.message, 'error'); } return;
     }
-    if (b.dataset.act === 'wedit') {
-      const cur = recOf(a.id)?.weight ?? '';
-      const v = prompt(`Change ${a.first}'s weight for ${fmtDate(wDate)}:`, cur); if (v === null) return;
-      const n = Math.round(parseFloat(v) * 10) / 10;
-      if (!(n > 0 && n < 500)) return toast('That weight looks off', 'error');
-      try { await saveRec(a.id, { weight: n }); row.outerHTML = rowHTML(a, list().indexOf(a)); toast('Weight updated', 'success'); } catch (err) { toast(err.code || err.message, 'error'); }
-    }
-    if (b.dataset.act === 'goal') goalSheet(a, recOf(a.id), prevGoal(a.id), tg, async (goal, prevMet, pg, well) => {
-      await saveRec(a.id, { goal, ...well, ...(prevMet !== null ? { prevMet } : {}) });
-      if (pg && prevMet !== null) { const { id, updatedAt, by, ...rest } = pg; await store.put('weighins', pg.id, { ...rest, met: prevMet }).catch(() => {}); pg.met = prevMet; }
-      const r = $(`[data-a="${a.id}"]`); if (r) r.outerHTML = rowHTML(a, list().indexOf(a)); count();
-    });
+    const a = athletes.find(x => x.id === b.closest('[data-a]')?.dataset.a); if (!a) return;
+    if (b.dataset.act === 'weigh') weighSheet(a);
+    if (b.dataset.act === 'goal') openGoal(a);
   };
   draw();
+  if (window.innerWidth > 760) $('#wq').focus();
 }
 const diffHTML = (d) => { d = Math.round(d * 10) / 10; return d === 0 ? '<span class="small muted">±0</span>' : `<span class="small ${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d}</span>`; };
 
@@ -376,7 +414,7 @@ async function decodeImage(file) {
   if (!file || !file.size) throw new Error('The photo came through empty. If it\'s in Google Photos, download it to the phone first, or take a screenshot of it.');
   if (window.createImageBitmap) {
     // 1) decode already shrunk: memory-safe for 50-200 MP phone photos
-    try { return await createImageBitmap(file, { imageOrientation: 'from-image', resizeWidth: 1600, resizeQuality: 'high' }); } catch (e) { errors.push('bitmap-resize: ' + (e.name || e.message)); }
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image', resizeWidth: 1400, resizeQuality: 'high' }); } catch (e) { errors.push('bitmap-resize: ' + (e.name || e.message)); }
     // 2) full-size decode
     try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) { errors.push('bitmap: ' + (e.name || e.message)); }
   }
@@ -391,7 +429,7 @@ async function decodeImage(file) {
   } catch (e) { errors.push('img/data: ' + (e.name || e.message)); }
   const err = new Error('decode'); err.details = `${file.type || 'unknown type'}, ${Math.round(file.size / 1024)} KB · ${errors.join(' | ')}`; throw err;
 }
-async function shrinkPhoto(file, maxW = 1600, q = 0.78) {
+async function shrinkPhoto(file, maxW = 1400, q = 0.72) {
   let img;
   try { img = await decodeImage(file); }
   catch (e) {
@@ -408,7 +446,7 @@ async function shrinkPhoto(file, maxW = 1600, q = 0.78) {
   ctx.drawImage(img, 0, 0, w, h);
   if (img.close) img.close();
   let data = c.toDataURL('image/jpeg', q);
-  while (data.length > 900000 && q > 0.35) { q -= 0.1; data = c.toDataURL('image/jpeg', q); }
+  while (data.length > 600000 && q > 0.35) { q -= 0.1; data = c.toDataURL('image/jpeg', q); }
   if (data.length > 950000) { const c2 = document.createElement('canvas'); c2.width = Math.round(w * 0.7); c2.height = Math.round(h * 0.7); c2.getContext('2d').drawImage(c, 0, 0, c2.width, c2.height); data = c2.toDataURL('image/jpeg', 0.7); w = c2.width; h = c2.height; }
   return { data, w, h };
 }
@@ -844,7 +882,7 @@ export async function checkinSummary(site) {
   const R = recs.filter(r => r.date === today());
   const of = (id) => R.find(r => r.athleteId === id);
   return { total: L.length, absent: L.filter(a => of(a.id)?.absent).length, weighed: L.filter(a => typeof of(a.id)?.weight === 'number').length,
-    hereWeighed: L.filter(a => !of(a.id)?.absent && (typeof of(a.id)?.weight === 'number' || of(a.id)?.checkedIn)).length,
+    hereWeighed: L.filter(a => !of(a.id)?.absent && typeof of(a.id)?.weight === 'number').length,
     goals: L.filter(a => of(a.id)?.goal?.what).length };
 }
 
@@ -937,54 +975,4 @@ export async function viewMeets(main, user, id) {
 
 
 // ---- Quick check-in: tap your name, weight (optional), done ---------------------
-export async function viewKiosk(main, user) {
-  if (!can(user, 'edit')) { location.hash = '#/'; return; }
-  main.innerHTML = '<div class="muted">Loading…</div>';
-  const [{ athletes, sites }, recs] = await Promise.all([load(), loadWeights()]);
-  const d = today();
-  let site = sites.some(x => x.id === user.prefs?.site) ? user.prefs.site : 'all', q = '';
-  const list = () => athletes.filter(a => a.active !== false && (site === 'all' || !sites.length || a.site === site));
-  const recOf = (id) => recs.find(r => r.athleteId === id && r.date === d);
-  const done = (id) => { const r = recOf(id); return r && !r.absent && (typeof r.weight === 'number' || r.checkedIn); };
-  const save = async (id, patch) => {
-    const cur = recOf(id) || { athleteId: id, date: d }; const { id: _i, updatedAt, by, ...rest } = cur;
-    const next = { ...rest, ...patch, athleteId: id, date: d, checkedIn: true }; delete next.absent;
-    Object.keys(next).forEach(k => next[k] === undefined && delete next[k]);
-    await store.put('weighins', `${d}_${id}`, next);
-    const k = recs.findIndex(r => r.athleteId === id && r.date === d); const rec = { ...next, id: `${d}_${id}` }; if (k >= 0) recs[k] = rec; else recs.push(rec);
-  };
-  const draw = () => {
-    const L = list().filter(a => !q || `${a.first} ${a.last}`.toLowerCase().includes(q.toLowerCase()));
-    $('#kg').innerHTML = L.map(a => `<button class="kname ${done(a.id) ? 'done' : ''}" data-a="${a.id}"><b>${esc(a.first)}</b><span>${esc(a.last)}</span>${done(a.id) ? `<i>✓${typeof recOf(a.id)?.weight === 'number' ? ' ' + recOf(a.id).weight : ''}</i>` : ''}</button>`).join('')
-      || '<div class="empty" style="grid-column:1/-1">No names. Add girls on the Roster.</div>';
-    const n = list().filter(a => done(a.id)).length; $('#kc').textContent = `${n} of ${list().length} checked in`;
-  };
-  main.innerHTML = `<div class="page-head"><div><h1>Quick check-in</h1><div class="muted small" id="kc"></div></div><a class="btn ghost sm" href="#/weighin">Full check-in list →</a></div>
-    <div class="row wrap" style="gap:8px;margin-bottom:12px"><input class="input" id="kq" placeholder="🔍 Find your name…" style="max-width:320px">
-      ${sites.length ? `<select class="input" id="ks" style="width:auto"><option value="all">All buildings</option>${sites.map(x => `<option value="${x.id}" ${site === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}</div>
-    <div class="kgrid" id="kg"></div>`;
-  $('#kq').oninput = (e) => { q = e.target.value; draw(); };
-  $('#ks') && ($('#ks').onchange = (e) => { site = e.target.value; draw(); });
-  $('#kg').onclick = (e) => {
-    const b = e.target.closest('[data-a]'); if (!b) return;
-    const a = athletes.find(x => x.id === b.dataset.a); const r = recOf(a.id);
-    const m = modal({ title: `Hi, ${a.first}!`, body: `<div class="stack" style="text-align:center">
-        <div class="tiny">Your weight today (optional)</div>
-        <input class="input kw" id="kw" inputmode="decimal" enterkeyhint="done" value="${typeof r?.weight === 'number' ? r.weight : ''}" placeholder="—">
-        <button class="btn go xl" data-act="kdone" style="width:100%">✓ Done</button>
-        <button class="btn ghost" data-act="kmore">＋ How I feel &amp; my goal (optional)</button></div>`,
-      onAction: async (act, el, w, close) => {
-        const v = w.querySelector('#kw').value.trim(); let weight;
-        if (v) { weight = Math.round(parseFloat(v) * 10) / 10; if (!(weight > 0 && weight < 500)) return toast('That weight looks off', 'error'); }
-        if (act === 'kdone' || act === 'kmore') {
-          try { await save(a.id, weight !== undefined ? { weight } : {}); } catch (err) { return toast('Not saved: ' + (err.code || err.message), 'error'); }
-          close(); draw(); $('#kq').value = ''; q = ''; draw();
-          if (act === 'kdone') toast(`${a.first} is checked in`, 'success');
-          else { const tg = await teamGoals(site); goalSheet(a, recOf(a.id), null, tg, async (goal, prevMet, pg, well) => { await save(a.id, { ...(goal ? { goal } : {}), ...well }); draw(); }); }
-        }
-      } });
-    const inp = m.el.querySelector('#kw'); setTimeout(() => inp.focus(), 50);
-    inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); m.el.querySelector('[data-act=kdone]').click(); } };
-  };
-  draw();
-}
+export async function viewKiosk(main, user) { return viewWeighIn(main, user); }

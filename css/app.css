@@ -477,3 +477,6 @@ details summary { cursor: pointer; padding: 6px 0; }
 .fsinner img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-select: none; pointer-events: none; }
 .fsinner .ptag { transform: translate(-50%, -50%) scale(var(--inv, 1)); }
 .fshint { text-align: center; color: #94a3b8; padding: 8px 12px max(8px, env(safe-area-inset-bottom)); background: #0b1020; }
+#win .wrow, #wout .wrow { flex-wrap: nowrap; }
+#win .wrow > .grow, #wout .wrow > .grow { flex-basis: auto; }
+#win .wlock { cursor: pointer; color: var(--text); padding: 6px 10px; }
