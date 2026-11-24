@@ -38,8 +38,17 @@ export async function viewRoster(main, user) {
     $$('[data-a]').forEach(b => b.onclick = () => coach && editAthlete(athletes.find(x => x.id === b.dataset.a), sites, weights, () => viewRoster(main, user)));
   };
   main.innerHTML = `<div class="page-head"><div><h1>Roster</h1><div class="muted small" id="rcount"></div></div>
-      ${coach ? `<div class="row wrap" style="gap:8px"><a class="btn go" href="#/weighin">✓ Check-in &amp; weigh-in</a><a class="btn" href="#/lineup">📷 Photo caption</a><a class="btn" href="#/meets">🏆 Meets</a><a class="btn" href="#/checkins">◷ Check-in history</a><a class="btn" href="#/sizes">👕 Sizes</a><a class="btn" href="#/paper">📰 Newspaper</a></div>` : ''}</div>
-    ${coach ? `<div class="row wrap" style="gap:8px;margin-bottom:12px"><button class="btn primary" id="addA">＋ Add wrestler</button><button class="btn" id="paste">📋 Paste a list</button><button class="btn ghost sm" id="csv">⬇ Export</button></div>` : ''}
+      ${coach ? `<button class="btn ghost sm" id="csv">⬇ Export</button>` : ''}</div>
+    ${coach ? `<a class="todaybar" href="#/weighin" style="margin:0 0 12px"><span class="tb-ic">✓</span><span class="grow"><b>Check-in &amp; weigh-in</b><span class="small">Tap her name, enter her weight</span></span><span class="tb-go">›</span></a>
+    <div class="tools">
+      <a class="tool" href="#/checkins"><span>◷</span>Check-in history</a>
+      <a class="tool" href="#/meets"><span>🏆</span>Meets</a>
+      <a class="tool" href="#/lineup"><span>📷</span>Team photo</a>
+      <a class="tool" href="#/paper"><span>📰</span>Newspaper</a>
+      <a class="tool" href="#/sizes"><span>👕</span>Sizes</a>
+      <button class="tool" id="paste"><span>📋</span>Paste a list</button>
+    </div>
+    <div class="row between" style="margin:18px 0 8px"><div class="section-title" style="margin:0">Wrestlers</div><button class="btn primary sm" id="addA">＋ Add wrestler</button></div>` : ''}
     ${coach ? `<form id="qa" class="card" style="margin-bottom:12px;padding:12px"><div class="tiny" style="margin-bottom:6px">Quick add: type a name, hit Enter, next girl</div>
       <div class="grid" style="grid-template-columns:1fr 1fr 70px auto;gap:6px">
         <input class="input" id="qf" placeholder="First" autocapitalize="words" autocomplete="off"><input class="input" id="ql" placeholder="Last" autocapitalize="words" autocomplete="off">
@@ -243,18 +252,20 @@ export async function viewWeighIn(main, user) {
         <button class="wlock" data-act="weigh" title="Change weight">${typeof r.weight === 'number' ? r.weight : 'add weight'} ✎</button></div>`; }).join('') || '<div class="small muted">No one yet.</div>';
   };
   main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="small" id="wc"></div></div>
-      <div class="row wrap" style="gap:6px"><a class="btn ghost sm" href="#/checkins">◷ History</a><a class="btn go sm" href="#/today">Next: practice →</a></div></div>
-    <div class="row wrap" style="gap:8px;margin-bottom:12px">
-      <input class="input" id="wq" placeholder="🔍 Find a name…" style="max-width:280px" autocomplete="off">
+      <a class="btn go sm" href="#/today">Next: practice →</a></div>
+    <div class="row" style="gap:8px;margin-bottom:8px">
+      <input class="input grow" id="wq" placeholder="🔍 Find a name…" autocomplete="off">
       <button class="btn primary" data-act="newgirl">＋ New girl</button>
-      <input type="date" class="input" id="wdt" value="${wDate}" style="width:auto">
-      ${sites.length ? `<select class="input" id="wst" style="width:auto"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
     </div>
-    <div class="section-title" style="margin-top:4px">Not checked in = absent <span class="muted" style="font-weight:600;letter-spacing:0;text-transform:none">· tap her name, enter her weight</span></div>
+    <div class="row wrap" style="gap:8px;margin-bottom:6px">
+      <input type="date" class="input input-sm" id="wdt" value="${wDate}">
+      ${sites.length ? `<select class="input input-sm" id="wst"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
+    </div>
+    <div class="section-title" style="margin-top:14px">Not checked in = absent</div><div class="small muted" style="margin:-6px 0 10px">Tap her name and enter her weight.</div>
     <div class="kgrid" id="wwait"></div>
     <div class="section-title">✓ Here</div><div class="plist" id="win"></div>
     <div class="section-title">Team goals</div><div id="tgc">${goalsCard()}</div>
-    <button class="btn ghost sm" id="wcsv">⬇ Export this day</button>`;
+    <div class="row wrap" style="gap:8px"><a class="btn ghost sm" href="#/checkins">◷ Check-in history</a><button class="btn ghost sm" id="wcsv">⬇ Export this day</button></div>`;
   $('#wq').oninput = (e) => { q = e.target.value; draw(); };
   $('#wdt').onchange = (e) => { wDate = e.target.value || today(); draw(); };
   $('#wst') && ($('#wst').onchange = async (e) => { wSite = e.target.value; tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); draw(); });

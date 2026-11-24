@@ -52,6 +52,17 @@ async function route() {
   (views[name] || viewHome)(id);
 }
 
+const ICON = {
+  '': '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  practices: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
+  now: '<circle cx="12" cy="12" r="9"/><path d="m10 8.5 5.5 3.5-5.5 3.5z" fill="currentColor"/>',
+  roster: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-6 6.5-6s5.9 2.4 6.5 6"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14c2.7.2 4.6 2.3 5 5.5"/>',
+  history: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+  library: '<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v15H5.5A1.5 1.5 0 0 0 4 19.5z"/><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H20v-3"/>',
+  admin: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 15H3.5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 4.6V3.5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.3.8z"/>',
+};
+const icon = (k) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
+const initials = (u) => ((u.name || u.email || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(x => x[0]).join('') || '?').toUpperCase();
 function shell(active, inner) {
   let tabs = [['', 'Home', '⌂'], ['practices', 'Practices', '▤'], ['now', 'Live', '●'], ['roster', 'Roster', '☺'], ['history', 'History', '◷'], ['library', 'Library', '☰']];
   if (can(user, 'admin')) tabs.push(['admin', 'Admin', '⚙']);
@@ -63,12 +74,12 @@ function shell(active, inner) {
       <a class="brand" href="#/"><span class="mark">BJ</span><span class="txt">${esc(PROGRAM_NAME)}<small>${esc(TEAM_NAME)}</small></span></a>
       <nav class="nav">${tabs.map(([h, l]) => `<a href="#/${h}" class="${active === h ? 'on' : ''}">${l}</a>`).join('')}</nav>
       <div class="userchip">
-        <a class="btn sm" href="#/room" title="Open on the TV in the wrestling room">📺 Room display</a>
-        <button class="btn sm ghost" id="usermenu" title="${esc(user.email)}">${esc(user.name || user.email)} <span class="badge ${user.role === 'owner' || user.role === 'admin' ? 'gold' : ''}">${ROLE_LABEL[user.role]}</span></button>
+        <a class="btn sm ghost hide-sm" href="#/room" title="Open on the TV in the wrestling room">📺 Room display</a>
+        <button class="me" id="usermenu" title="${esc(user.email)} · ${ROLE_LABEL[user.role]}"><span class="me-n hide-sm">${esc(user.name || user.email)}</span><span class="avatar ${user.role === 'owner' || user.role === 'admin' ? 'gold' : ''}">${esc(initials(user))}</span></button>
       </div></div></header>
     <div id="livebar">${liveBar()}</div>
     <main class="page">${inner}</main>
-    <nav class="tabbar">${tabs.slice(0, 5).map(([h, l, ic]) => `<a href="#/${h}" class="${active === h ? 'on' : ''}"><span class="ic">${ic}</span>${l}</a>`).join('')}</nav>`;
+    <nav class="tabbar">${tabs.slice(0, 5).map(([h, l]) => `<a href="#/${h}" class="${active === h ? 'on' : ''}">${icon(h)}<span>${l}</span></a>`).join('')}</nav>`;
   $('#usermenu').onclick = userMenu;
   const dr = $('#demorole'); if (dr) dr.onchange = () => store.setDemoRole(dr.value);
 }
@@ -82,10 +93,10 @@ function liveBar() {
 
 function userMenu() {
   modal({ title: user.name || user.email, body: `<div class="stack">
-    <div class="muted small">${esc(user.email)} · ${ROLE_LABEL[user.role]}</div>
+    <div class="muted small">${esc(user.email)} · <span class="badge ${user.role === 'owner' || user.role === 'admin' ? 'gold' : ''}">${ROLE_LABEL[user.role]}</span></div>
     <label class="field" id="mysite-wrap"><span class="tiny">My building</span><select class="input" id="mysite"><option value="">Loading…</option></select></label>
     <button class="btn lg" style="width:100%" data-act="sound">🔊 Sound & voice settings (this device)</button>
-    <div class="row wrap mobile-only" style="gap:8px"><a class="btn" href="#/library">☰ Library</a>${can(user, 'admin') ? '<a class="btn" href="#/admin">⚙ Admin</a>' : ''}<a class="btn" href="#/history">◷ History</a></div>
+    <div class="row wrap mobile-only" style="gap:8px"><a class="btn" href="#/room">📺 Room display</a><a class="btn" href="#/library">☰ Library</a>${can(user, 'admin') ? '<a class="btn" href="#/admin">⚙ Admin</a>' : ''}<a class="btn" href="#/history">◷ History</a></div>
     <a class="btn lg" style="width:100%" href="#/check">✓ Check my access</a>
     ${isFirebase ? '<button class="btn lg danger" style="width:100%" data-act="out">Sign out</button>' : ''}
     <div class="motto small" style="margin-top:12px">${MOTTO.map(esc).join('<span>•</span>')}</div></div>`,
@@ -189,24 +200,24 @@ async function viewHome() {
   const coach = can(user, 'edit');
   $('main').innerHTML = `
     <div class="hero">
-      <div><div class="tiny">${esc(TEAM_NAME)}</div><h1>${esc(PROGRAM_NAME)}</h1>
-      <div class="motto" style="justify-content:flex-start">${MOTTO.map(esc).join('<span>•</span>')}</div></div>
-      <div class="muted">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+      <div class="hero-date">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+      <h1>${esc(PROGRAM_NAME)}</h1>
+      <div class="hero-team">${esc(TEAM_NAME)}</div>
+      <div class="motto">${MOTTO.map(esc).join('<span>•</span>')}</div>
     </div>
-    ${coach ? `<a class="todaybar" href="#/today"><span class="grow"><b>▶ Start today's practice</b><span class="small">Check-in → today's practice → start</span></span><span style="font-size:28px">›</span></a>` : ''}
-    ${coach ? `<div class="big3">
-      <button class="b3 run" data-act="pickrun"><b>▶</b>Run a saved practice</button>
-      <a class="b3 new" href="#/new/blank"><b>＋</b>Build a new one</a>
-      <button class="b3 dict" data-dictate><b>🎤</b>Say it, AI builds it</button>
+    ${coach ? `<a class="todaybar" href="#/today"><span class="tb-ic">▶</span><span class="grow"><b>Start today's practice</b><span class="small">Check-in · pick the practice · go</span></span><span class="tb-go">›</span></a>
+    <div class="quick3">
+      <button class="q3" data-act="pickrun"><span class="q3-ic" style="--c:#22c55e">▶</span><span>Run a saved practice</span></button>
+      <a class="q3" href="#/new/blank"><span class="q3-ic" style="--c:#3b82f6">＋</span><span>Build a new one</span></a>
+      <button class="q3" data-dictate><span class="q3-ic" style="--c:#a78bfa">🎤</span><span>Say it, AI builds it</span></button>
     </div>` : ''}
     ${todays.length ? `<div class="section-title">Today</div><div class="plist">${todays.map(prow).join('')}</div>` : ''}
     <div class="section-title">${coach ? 'Saved practices' : 'Practices'}</div>
     ${saved.length ? `<div class="plist">${saved.map(prow).join('')}</div>${active.length > saved.length + todays.length ? '<a class="btn" href="#/practices" style="margin-top:10px">See all practices →</a>' : ''}`
       : `<div class="empty">${coach ? 'No saved practices yet. Build one or start from a template below.' : 'Nothing posted yet.'}</div>`}
     ${coach ? `<div class="section-title">Start from a template</div>
-      <div class="grid c4">${TEMPLATES.map(tp => `<a class="tpl" href="#/new/${tp.key}" style="border-color:${tp.accent}33;text-decoration:none;color:inherit"><div class="n" style="color:${tp.accent}">${esc(tp.name)}</div><div class="b">${esc(tp.blurb)}</div></a>`).join('')}</div>` : ''}
-    <div class="section-title">Room TV</div>
-    <div class="card row wrap between"><div><b>Open the room display on the TV</b><div class="small muted">Sign in once on the TV with a view-only account. It shows the motto and clock, then switches on by itself when practice starts.</div></div><a class="btn" href="#/room">📺 Room display</a></div>`;
+      <div class="tplrow">${TEMPLATES.map(tp => `<a class="tpl2" href="#/new/${tp.key}"><i style="background:${tp.accent}"></i><span><b>${esc(tp.name)}</b><small>${esc(tp.blurb)}</small></span></a>`).join('')}</div>` : ''}
+    <a class="roomlink" href="#/room"><span class="q3-ic" style="--c:#facc15">📺</span><span class="grow"><b>Room TV display</b><small>Open on the wrestling-room TV. It switches on by itself when practice starts.</small></span><span class="muted">›</span></a>`;
   bindRows();
   const pr = $('[data-act=pickrun]'); if (pr) pr.onclick = () => pickToRun(active);
 }
@@ -465,7 +476,7 @@ async function viewLibrary() {
     const list = drills.filter(d => (!libCat || d.category === libCat) && (!q || (d.title + ' ' + (d.description || '') + ' ' + (d.cues || []).join(' ')).toLowerCase().includes(q)));
     $('#dl').innerHTML = CATEGORIES.map(c => { const items = list.filter(d => d.category === c.id).sort((a, b) => a.title.localeCompare(b.title)); return items.length ? `
       <div class="section-title" style="border-color:${c.color};color:${c.color}">${c.id} Drills · ${items.length}</div>
-      <div class="grid c3">${items.map(d => `<button class="drill" data-d="${d.id}"><span class="cat" style="background:${c.color}"></span><span class="t" style="padding-right:16px">${d.type === 'series' ? '⟳ ' : ''}${esc(d.title)}</span>
+      <div class="grid c3">${items.map(d => `<button class="drill" data-d="${d.id}"><span class="cdot" style="background:${c.color}"></span><span class="t" style="padding-right:16px">${d.type === 'series' ? '⟳ ' : ''}${esc(d.title)}</span>
         <span class="d muted">${fmtDur(d.durationSec)} · ${d.type === 'series' ? d.moves.length + ' motions, each called out' : esc(d.description || c.id)}</span>
         ${(d.cues || []).length ? `<span class="d" style="color:#93c5fd">${d.cues.map(esc).join(' · ')}</span>` : ''}
         ${(d.levels || []).length ? `<span class="d muted">${d.levels.map(esc).join(', ')}</span>` : ''}</button>`).join('')}</div>` : ''; }).join('') || '<div class="empty">No drills match.</div>';
@@ -511,7 +522,7 @@ async function viewHistory() {
   done.forEach(r => (r.log || []).forEach(l => { if (!l.skipped && l.kind !== 'rest') catMin[l.category || 'Other'] = (catMin[l.category || 'Other'] || 0) + (l.plannedSec + (l.adjustSec || 0) + (l.overtimeSec || 0)) / 60; }));
   const catTotal = Object.values(catMin).reduce((a, b) => a + b, 0) || 1;
   $('main').innerHTML = `<div class="page-head"><h1>History</h1><button class="btn sm" id="csv">Export CSV</button></div>
-    <div class="grid c4">
+    <div class="grid c4 stats">
       <div class="card stat"><div class="tiny">Practices run</div><div class="v">${done.length}</div></div>
       <div class="card stat"><div class="tiny">Last 7 days</div><div class="v">${done.filter(r => r.startedAt > weekAgo).length}</div></div>
       <div class="card stat"><div class="tiny">Mat time logged</div><div class="v">${Math.round(done.reduce((s, r) => s + (r.actualSec || 0) - (r.pausedSec || 0), 0) / 3600 * 10) / 10}h</div></div>
@@ -526,6 +537,11 @@ async function viewHistory() {
         <td><b>${esc(r.practiceTitle)}</b>${r.notes ? `<div class="small muted">${esc(r.notes.slice(0, 80))}</div>` : ''}</td><td class="small">${esc(r.siteName || '')}</td><td>${esc(r.coachName || '')}</td>
         <td>${runBadge(r)}</td><td class="small">${fmt(r.plannedSec || 0)} → ${r.actualSec ? fmt(r.actualSec) : '—'}</td><td>${r.attendance ?? '—'}${r.absent?.length ? `<div class="small muted">out: ${r.absent.map(esc).join(', ')}</div>` : ''}</td><td>${r.rating ? '★'.repeat(r.rating) : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No practices run yet. Runs show up here after you press Start.</td></tr>'}
     </table></div>`;
+  $('main').insertAdjacentHTML('beforeend', `<div class="plist hist-cards">${runs.map(r => `<a class="prow" href="#/history/${r.id}" style="text-decoration:none;color:inherit"><div class="grow" style="min-width:0">
+      <div class="pr-t">${esc(r.practiceTitle)}</div>
+      <div class="pr-s">${new Date(r.startedAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}${r.siteName ? ' · ' + esc(r.siteName) : ''} · ${esc(r.coachName || '')}</div>
+      <div class="pr-s">${r.actualSec ? fmt(r.actualSec) : fmt(r.plannedSec || 0) + ' planned'}${r.attendance != null ? ` · ${r.attendance} here` : ''}${r.absent?.length ? ` · ${r.absent.length} absent` : ''}${r.rating ? ' · ' + '★'.repeat(r.rating) : ''}</div></div>${runBadge(r)}</a>`).join('') || '<div class="empty">No practices run yet. They show up here after you press Start.</div>'}</div>`);
+  $('main .card[style*="overflow-x"]')?.classList.add('hist-table');
   $$('[data-r]').forEach(tr => tr.onclick = () => location.hash = `#/history/${tr.dataset.r}`);
   $('#csv').onclick = () => {
     const rows = [['date', 'practice', 'building', 'coach', 'status', 'planned_min', 'actual_min', 'paused_min', 'wrestlers', 'rating', 'notes']].concat(runs.map(r => [new Date(r.startedAt).toISOString(), r.practiceTitle, r.siteName || '', r.coachName, r.status, Math.round((r.plannedSec || 0) / 60), Math.round((r.actualSec || 0) / 60), Math.round((r.pausedSec || 0) / 60), r.attendance ?? '', r.rating ?? '', r.notes || '']));
