@@ -10,7 +10,7 @@ import * as audio from './audio.js';
 import * as voice from './voice.js';
 import { store, can, isFirebase } from './store.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO } from './config.js';
-import { teamGoals, goalIsToday, goalText, practiceGoalSheet, publishTeamGoal } from './roster.js';
+import { teamGoals, goalIsToday, goalText, practiceGoalSheet, publishTeamGoal, isHere } from './roster.js';
 
 let S = null;
 
@@ -723,13 +723,13 @@ function showSummary() {
   let roster = [], absent = new Set(), recs = [];
   Promise.all([store.list('athletes'), store.list('weighins', ['date', '==', dstr])]).then(([ath, w]) => {
     recs = w; roster = ath.filter(a => a.active !== false && (!r.site || !a.site || a.site === r.site)).sort((x, y) => (x.last || '').localeCompare(y.last || ''));
-    const inToday = new Set(w.filter(x => !x.absent && typeof x.weight === 'number').map(x => x.athleteId));
+    const inToday = new Set(w.filter(isHere).map(x => x.athleteId));
     roster.forEach(a => { if (!inToday.has(a.id)) absent.add(a.id); }); paintAtt();
   }).catch(() => { const el = div.querySelector('#d-roster'); if (el) el.innerHTML = '<span class="small muted">Roster not available.</span>'; });
   const paintAtt = () => {
     const el = div.querySelector('#d-roster'); if (!el) return;
     el.innerHTML = roster.length ? roster.map(a => `<button class="chip ${absent.has(a.id) ? 'absent' : ''}" data-ab="${a.id}">${absent.has(a.id) ? '✗ ' : ''}${esc(a.first)} ${esc(a.last)}</button>`).join('') : '<span class="small muted">No roster yet. Add girls under Roster.</span>';
-    div.querySelector('#d-attn').textContent = roster.length ? `${roster.length - absent.size} here · ${absent.size} not here` : '';
+    div.querySelector('#d-attn').textContent = roster.length ? `${roster.length - absent.size} here · ${absent.size} absent` : '';
     el.querySelectorAll('[data-ab]').forEach(b => b.onclick = (e) => { e.stopPropagation(); const id = b.dataset.ab; absent.has(id) ? absent.delete(id) : absent.add(id); paintAtt(); });
   };
   let rating = 0;
@@ -742,10 +742,11 @@ function showSummary() {
       await store.updateRun(S.runId, { attendance: roster.length ? roster.length - absent.size : null, absent: absentNames, rating: rating || null, notes: div.querySelector('#d-notes').value.trim() });
       // keep today's check-in in sync with what the coach confirmed here
       for (const a of roster) {
-        const cur = recs.find(x => x.athleteId === a.id); const want = absent.has(a.id);
-        if (!!cur?.absent === want) continue;
+        const cur = recs.find(x => x.athleteId === a.id); const wantOut = absent.has(a.id);
+        if (isHere(cur) === !wantOut) continue;
         const { id, updatedAt, by, ...rest } = cur || { athleteId: a.id, date: dstr };
-        const next = { ...rest, athleteId: a.id, date: dstr }; if (want) { next.absent = true; delete next.weight; } else delete next.absent;
+        const next = { ...rest, athleteId: a.id, date: dstr }; delete next.absent;
+        if (wantOut) { delete next.weight; delete next.here; } else next.here = true;
         store.put('weighins', `${dstr}_${a.id}`, next).catch(() => {});
       }
       toast('Saved to history', 'success'); location.hash = `#/history/${S.runId}`;

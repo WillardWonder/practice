@@ -97,7 +97,7 @@ function readAthlete(w, base = {}) {
 function editAthlete(a, sites, weights, done) {
   const hist = a ? weights.filter(w => w.athleteId === a.id && typeof w.weight === 'number').sort((x, y) => y.date.localeCompare(x.date)) : [];
   const goals = a ? weights.filter(w => w.athleteId === a.id && w.goal?.what).sort((x, y) => y.date.localeCompare(x.date)) : [];
-  const absent = a ? weights.filter(w => w.athleteId === a.id && w.absent).length : 0;
+  const absent = 0;
   modal({ title: a ? full(a) : 'Add wrestler', body: athleteForm(a, sites, store.user) + (a ? `
       ${goals.length ? `<div class="tiny" style="margin:16px 0 6px">Practice goals · ${goals.filter(g => g.met === true).length} of ${goals.filter(g => g.met !== undefined).length} hit</div>
         <div class="wh">${goals.slice(0, 15).map(g => `<div class="small">${g.met === true ? '✅' : g.met === false ? '⬜' : '·'} <b>${fmtDate(g.date)}</b> ${esc(goalText(g.goal))}</div>`).join('')}</div>` : ''}
@@ -201,6 +201,8 @@ export async function teamGoals(site) {
   return { day: all.find(x => x.id === `${key}-${today()}`)?.text || '', season: all.find(x => x.id === `${key}-season`)?.text || '', mid: all.find(x => x.id === `${key}-mid`)?.text || '', key };
 }
 
+// Here = her weight was recorded (or a coach marked her here at the end of practice). Everyone else is absent.
+export const isHere = (r) => !!r && !r.absent && (typeof r.weight === 'number' || r.here === true);
 let wDate = null, wSite = null;
 // Check-in: a girl is checked in when her weight is recorded. Tap her name, type the weight, save.
 export async function viewWeighIn(main, user) {
@@ -212,8 +214,7 @@ export async function viewWeighIn(main, user) {
   let tg = await teamGoals(wSite), q = '';
   const list = () => athletes.filter(a => a.active !== false && (wSite === 'all' || !sites.length || a.site === wSite));
   const recOf = (id, date = wDate) => recs.find(w => w.athleteId === id && w.date === date);
-  const isIn = (id) => typeof recOf(id)?.weight === 'number' && !recOf(id)?.absent;
-  const isOut = (id) => !!recOf(id)?.absent;
+  const isIn = (id) => isHere(recOf(id));
   const prevW = (id) => recs.filter(w => w.athleteId === id && w.date < wDate && typeof w.weight === 'number').sort((x, y) => y.date.localeCompare(x.date))[0];
   const prevGoal = (id) => recs.filter(w => w.athleteId === id && w.date < wDate && w.goal?.what).sort((x, y) => y.date.localeCompare(x.date))[0];
   const saveRec = async (id, patch) => {
@@ -232,16 +233,14 @@ export async function viewWeighIn(main, user) {
     ${tg.mid ? `<div class="small"><span class="tiny">Mid-season</span><br>${esc(tg.mid)}</div>` : ''}
     <div class="small"><span class="tiny">Season</span><br>${esc(tg.season) || '<span class="muted">Not set yet</span>'}</div></div>`;
   const draw = () => {
-    const L = list(), waiting = L.filter(a => !isIn(a.id) && !isOut(a.id)), inn = L.filter(a => isIn(a.id)), out = L.filter(a => isOut(a.id));
-    $('#wc').innerHTML = `<b style="color:#86efac">${inn.length} checked in</b> · ${waiting.length} not yet · ${out.length} absent`;
+    const L = list(), waiting = L.filter(a => !isIn(a.id)), inn = L.filter(a => isIn(a.id));
+    $('#wc').innerHTML = `<b style="color:#86efac">${inn.length} here</b> · ${waiting.length} absent`;
     $('#wwait').innerHTML = waiting.filter(match).map(a => `<button class="kname" data-a="${a.id}" data-act="weigh"><b>${esc(a.first)}</b><span>${esc(a.last)}</span></button>`).join('')
-      || `<div class="small muted" style="grid-column:1/-1">${waiting.length ? 'No one matches.' : L.length ? '✓ Everyone is checked in or marked absent.' : 'No girls on the roster yet. Tap ＋ New girl.'}</div>`;
+      || `<div class="small muted" style="grid-column:1/-1">${waiting.length ? 'No one matches.' : L.length ? '✓ Everyone is checked in.' : 'No girls on the roster yet. Tap ＋ New girl.'}</div>`;
     $('#win').innerHTML = inn.filter(match).map(a => { const r = recOf(a.id), p = prevW(a.id); return `<div class="wrow" data-a="${a.id}">
         <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)}</div><div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)}) ` : 'First weigh-in '}${p ? diffHTML(r.weight - p.weight) : ''}${flags(r)}</div></div>
         <button class="btn sm ${r?.goal?.what || r?.feel ? 'primary' : ''}" data-act="goal" title="How I feel & my goal (optional)">${r?.feel ? FACES[r.feel - 1] : '🎯'}</button>
-        <button class="wlock" data-act="weigh" title="Change weight">${r.weight} ✎</button></div>`; }).join('') || '<div class="small muted">No one yet.</div>';
-    $('#wout').innerHTML = out.filter(match).map(a => `<div class="wrow off" data-a="${a.id}"><div class="grow"><div class="an">${esc(a.first)} ${esc(a.last)}</div></div><button class="btn sm" data-act="weigh">She's here</button></div>`).join('') || '<div class="small muted">No one.</div>';
-    $('#wrest').classList.toggle('hidden', !waiting.length);
+        <button class="wlock" data-act="weigh" title="Change weight">${typeof r.weight === 'number' ? r.weight : 'add weight'} ✎</button></div>`; }).join('') || '<div class="small muted">No one yet.</div>';
   };
   main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="small" id="wc"></div></div>
       <div class="row wrap" style="gap:6px"><a class="btn ghost sm" href="#/checkins">◷ History</a><a class="btn go sm" href="#/today">Next: practice →</a></div></div>
@@ -251,11 +250,9 @@ export async function viewWeighIn(main, user) {
       <input type="date" class="input" id="wdt" value="${wDate}" style="width:auto">
       ${sites.length ? `<select class="input" id="wst" style="width:auto"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
     </div>
-    <div class="section-title" style="margin-top:4px">Not checked in yet <span class="muted" style="font-weight:600;letter-spacing:0;text-transform:none">· tap her name, enter her weight</span></div>
+    <div class="section-title" style="margin-top:4px">Not checked in = absent <span class="muted" style="font-weight:600;letter-spacing:0;text-transform:none">· tap her name, enter her weight</span></div>
     <div class="kgrid" id="wwait"></div>
-    <button class="btn ghost sm hidden" id="wrest" data-act="restout" style="margin-top:8px">Mark everyone left as absent</button>
-    <div class="section-title">✓ Checked in</div><div class="plist" id="win"></div>
-    <div class="section-title">Absent</div><div class="plist" id="wout"></div>
+    <div class="section-title">✓ Here</div><div class="plist" id="win"></div>
     <div class="section-title">Team goals</div><div id="tgc">${goalsCard()}</div>
     <button class="btn ghost sm" id="wcsv">⬇ Export this day</button>`;
   $('#wq').oninput = (e) => { q = e.target.value; draw(); };
@@ -263,7 +260,7 @@ export async function viewWeighIn(main, user) {
   $('#wst') && ($('#wst').onchange = async (e) => { wSite = e.target.value; tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); draw(); });
   $('#wcsv').onclick = () => {
     const rows = [['last', 'first', 'date', 'status', 'weight', 'change', 'feeling_1to5', 'sleep_hrs', 'sleep', 'fruit_veg', 'milk', 'goal_word', 'goal', 'last_goal_met']].concat(list().map(a => { const r = recOf(a.id), p = prevW(a.id);
-      return [a.last, a.first, wDate, isOut(a.id) ? 'absent' : isIn(a.id) ? 'checked in' : 'not checked in', r?.weight ?? '', typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : '', r?.feel || '', r?.sleepHrs || '', r?.sleepQ || '', r?.fruitVeg ?? '', r?.milk ?? '', r?.goal?.word || '', goalText(r?.goal), r?.prevMet ?? '']; }));
+      return [a.last, a.first, wDate, isIn(a.id) ? 'here' : 'absent', r?.weight ?? '', typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : '', r?.feel || '', r?.sleepHrs || '', r?.sleepQ || '', r?.fruitVeg ?? '', r?.milk ?? '', r?.goal?.word || '', goalText(r?.goal), r?.prevMet ?? '']; }));
     download(`check-in-${wDate}.csv`, rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   };
 
@@ -276,9 +273,9 @@ export async function viewWeighIn(main, user) {
         <div class="small muted">${p ? `Last: ${p.weight} on ${fmtDate(p.date)}` : 'First weigh-in'}</div>
         <button class="btn go xl" data-act="wsave" style="width:100%">✓ Check in</button>
         <button class="btn ghost" data-act="wmore">✓ Check in + how I feel &amp; my goal (optional)</button>
-        <button class="btn ghost sm" data-act="wabs" style="color:#fca5a5">${isOut(a.id) ? 'Keep her absent' : 'Mark absent instead'}</button></div>`,
+        ${isIn(a.id) ? '<button class="btn ghost sm" data-act="wabs" style="color:#fca5a5">Undo check-in (she\'s not here)</button>' : ''}</div>`,
       onAction: async (act, el, w, close) => {
-        if (act === 'wabs') { try { await saveRec(a.id, { absent: true }); close(); draw(); } catch (e) { toast(e.code || e.message, 'error'); } return; }
+        if (act === 'wabs') { try { await saveRec(a.id, { weight: undefined, here: undefined }); close(); draw(); } catch (e) { toast(e.code || e.message, 'error'); } return; }
         const n = Math.round(parseFloat(w.querySelector('#ww').value) * 10) / 10;
         if (!(n > 0 && n < 500)) { w.querySelector('#ww').focus(); return toast('Type her weight to check her in', 'error'); }
         try { await saveRec(a.id, { weight: n, absent: undefined }); } catch (e) { return toast('Not saved: ' + (e.code || e.message), 'error'); }
@@ -323,11 +320,6 @@ export async function viewWeighIn(main, user) {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
     if (b.dataset.act === 'tgedit') return editTeamGoals(tg, async () => { tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); });
     if (b.dataset.act === 'newgirl') return newGirl();
-    if (b.dataset.act === 'restout') {
-      const rest = list().filter(a => !isIn(a.id) && !isOut(a.id));
-      if (!(await confirmBox('Mark the rest absent?', `${rest.length} girl${rest.length === 1 ? '' : 's'} who didn't weigh in will be marked absent for ${fmtDate(wDate)}.`, 'Mark absent', false))) return;
-      try { for (const a of rest) await saveRec(a.id, { absent: true }); draw(); } catch (err) { toast(err.code || err.message, 'error'); } return;
-    }
     const a = athletes.find(x => x.id === b.closest('[data-a]')?.dataset.a); if (!a) return;
     if (b.dataset.act === 'weigh') weighSheet(a);
     if (b.dataset.act === 'goal') openGoal(a);
@@ -846,10 +838,10 @@ export async function viewCheckins(main, user, date) {
   if (!date) {
     const days = [...new Set(recs.map(r => r.date).concat(runs.filter(r => !r.test && r.date).map(r => r.date)))].sort().reverse();
     main.innerHTML = `<div class="page-head"><div><h1>Check-in history</h1><div class="muted small">Every practice day: attendance, weights, goals</div></div><a class="btn go sm" href="#/weighin">✓ Today's check-in</a></div>
-      ${days.length ? `<div class="plist">${days.map(d => { const R = recs.filter(r => r.date === d); const here = R.filter(r => !r.absent).length, out = R.filter(r => r.absent).length;
+      ${days.length ? `<div class="plist">${days.map(d => { const R = recs.filter(r => r.date === d); const hereIds = new Set(R.filter(isHere).map(r => r.athleteId)); const here = hereIds.size, out = athletes.filter(a => a.active !== false && !hereIds.has(a.id)).length;
         const w = R.filter(r => typeof r.weight === 'number' && !r.absent).length, g = R.filter(r => r.goal?.what).length, runsD = dayRuns(d);
         return `<a class="prow" href="#/checkins/${d}" style="text-decoration:none;color:inherit"><div class="grow"><div class="pr-t">${fmtDate(d)}</div>
-          <div class="pr-s">${here} here · ${out} not here · ${w} weighed · ${g} goals${runsD.length ? ' · ' + runsD.map(r => esc(r.practiceTitle)).join(', ') : ''}</div></div><span class="muted">›</span></a>`; }).join('')}</div>`
+          <div class="pr-s">${here} here · ${out} absent · ${w} weighed · ${g} goals${runsD.length ? ' · ' + runsD.map(r => esc(r.practiceTitle)).join(', ') : ''}</div></div><span class="muted">›</span></a>`; }).join('')}</div>`
         : '<div class="empty">No check-ins yet. They show up here after the first weigh-in.</div>'}`;
     return;
   }
@@ -859,18 +851,18 @@ export async function viewCheckins(main, user, date) {
   const runsD = dayRuns(date);
   main.innerHTML = `<div class="row between wrap" style="margin-bottom:12px"><a class="btn ghost sm" href="#/checkins">← All days</a>
       <button class="btn sm" id="ccsv">⬇ Export</button></div>
-    <div class="page-head"><div><h1>${fmtDate(date)}</h1><div class="muted small">${R.filter(r => !r.absent).length} here · ${R.filter(r => r.absent).length} not here</div></div></div>
+    <div class="page-head"><div><h1>${fmtDate(date)}</h1><div class="muted small">${rows.filter(({ r }) => isHere(r)).length} here · ${rows.filter(({ r }) => !isHere(r)).length} absent</div></div></div>
     ${runsD.length ? `<div class="stack" style="margin-bottom:12px">${runsD.map(r => `<a class="card" href="#/history/${r.id}" style="text-decoration:none;color:inherit;display:block"><div class="tiny">Practice${r.siteName ? ' · ' + esc(r.siteName) : ''}</div>
       <b>${esc(r.practiceTitle)}</b>${r.goal?.what ? `<div class="small" style="margin-top:4px">🎯 ${esc(goalText(r.goal))}</div>` : ''}<div class="small muted">${esc(r.status)}${r.actualSec ? ' · ' + Math.round(r.actualSec / 60) + ' min' : ''} ›</div></a>`).join('')}</div>` : '<div class="small muted" style="margin-bottom:12px">No practice was run this day.</div>'}
     <div class="card" style="padding:0;overflow-x:auto"><table class="list"><tr><th>Wrestler</th><th>Here</th><th>Weight</th><th>Feeling</th><th>Sleep</th><th>Fuel</th><th>Goal</th><th>Hit?</th></tr>
       ${rows.map(({ a, r }) => { const p = prev(a.id); const d = typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : null;
-        return `<tr><td><b>${esc(a.first)} ${esc(a.last)}</b></td><td>${r?.absent ? '<span class="badge red">No</span>' : r ? '<span class="badge green">Yes</span>' : '<span class="muted small">no check-in</span>'}</td>
+        return `<tr><td><b>${esc(a.first)} ${esc(a.last)}</b></td><td>${isHere(r) ? '<span class="badge green">Yes</span>' : '<span class="badge red">Absent</span>'}</td>
           <td>${typeof r?.weight === 'number' ? `${r.weight} ${d !== null ? `<span class="small ${d > 0 ? 'up' : d < 0 ? 'down' : 'muted'}">${d > 0 ? '+' : ''}${d}</span>` : ''}` : ''}</td>
           <td style="font-size:20px">${r?.feel ? FACES[r.feel - 1] : ''}</td><td class="small">${r?.sleepHrs ? r.sleepHrs + 'h ' + (r.sleepQ || '') : ''}</td>
           <td>${r?.fruitVeg ? '🍎' : ''}${r?.milk ? '🥛' : ''}</td>
           <td class="small">${esc(goalText(r?.goal))}</td><td>${r?.met === true ? '✅' : r?.met === false ? '⬜' : ''}</td></tr>`; }).join('')}</table></div>`;
   $('#ccsv').onclick = () => {
-    const out = [['last', 'first', 'date', 'here', 'weight', 'goal', 'goal_met']].concat(rows.map(({ a, r }) => [a.last, a.first, date, r?.absent ? 'no' : r ? 'yes' : '', r?.weight ?? '', goalText(r?.goal), r?.met ?? '']));
+    const out = [['last', 'first', 'date', 'here', 'weight', 'goal', 'goal_met']].concat(rows.map(({ a, r }) => [a.last, a.first, date, isHere(r) ? 'yes' : 'no', r?.weight ?? '', goalText(r?.goal), r?.met ?? '']));
     download(`check-in-${date}.csv`, out.map(x => x.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   };
 }
@@ -881,8 +873,8 @@ export async function checkinSummary(site) {
   const L = athletes.filter(a => a.active !== false && (!site || site === 'all' || !sites.length || a.site === site));
   const R = recs.filter(r => r.date === today());
   const of = (id) => R.find(r => r.athleteId === id);
-  return { total: L.length, absent: L.filter(a => of(a.id)?.absent).length, weighed: L.filter(a => typeof of(a.id)?.weight === 'number').length,
-    hereWeighed: L.filter(a => !of(a.id)?.absent && typeof of(a.id)?.weight === 'number').length,
+  const here = L.filter(a => isHere(of(a.id))).length;
+  return { total: L.length, here, absent: L.length - here, weighed: L.filter(a => typeof of(a.id)?.weight === 'number').length, hereWeighed: here,
     goals: L.filter(a => of(a.id)?.goal?.what).length };
 }
 
