@@ -61,9 +61,7 @@ function drawAll() {
 function drawGoal() {
   const el = $('#b-goal'); if (!el) return;
   const fresh = goalIsToday(P);
-  el.innerHTML = `<button class="goalcard ${fresh ? 'ok' : 'need'}" data-act="goal">
-    <span class="tiny">${fresh ? '🎯 Today\'s practice goal' : P.goal?.what ? `🎯 Goal is from ${new Date(P.goal.date + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}. Set today's (optional)` : '🎯 Practice goal (optional)'}</span>
-    <span class="gt">${fresh ? esc(goalText(P.goal)) : P.goal?.what ? `<span class="muted">${esc(goalText(P.goal))}</span>` : 'Tap to set the team\'s SMART goal for this practice'}</span></button>`;
+  el.innerHTML = `<button class="tgoal ${fresh ? 'ok' : ''}" data-act="goal">🎯 ${fresh ? esc(goalText(P.goal)) : 'Add a practice goal <span class="muted">(optional)</span>'}</button>`;
 }
 function openGoal(then) {
   practiceGoalSheet(P, async (goal) => {

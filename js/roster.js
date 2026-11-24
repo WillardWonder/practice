@@ -33,7 +33,7 @@ export async function viewRoster(main, user) {
         <span class="grow"><span class="an">${esc(a.last)}, ${esc(a.first)}${a.nick ? ` <span class="muted">(${esc(a.nick)})</span>` : ''}</span>
         <span class="as">${[a.grade ? 'Gr ' + a.grade : '', a.weightClass ? a.weightClass + ' lb' : '', a.level, siteName(sites, a.site), a.active === false ? 'inactive' : ''].filter(Boolean).map(esc).join(' · ')}</span></span>
         ${coach && last[a.id] ? `<span class="aw">${last[a.id].weight}<small>${fmtDate(last[a.id].date)}</small></span>` : ''}</button>`).join('')
-      : `<div class="empty">${athletes.length ? 'No one matches.' : coach ? 'No wrestlers yet. Tap <b>Paste a list</b> to add the whole team at once.' : 'No roster yet.'}</div>`;
+      : `<div class="empty">${athletes.length ? 'No one matches.' : coach ? 'No wrestlers yet. Tap <b>＋ Add</b> to paste the whole team at once.' : 'No roster yet.'}</div>`;
     $('#rcount').textContent = `${list.length} wrestler${list.length === 1 ? '' : 's'}`;
     $$('[data-a]').forEach(b => b.onclick = () => coach && editAthlete(athletes.find(x => x.id === b.dataset.a), sites, weights, () => viewRoster(main, user)));
   };
@@ -46,26 +46,29 @@ export async function viewRoster(main, user) {
       <a class="tool" href="#/lineup"><span>📷</span>Team photo</a>
       <a class="tool" href="#/paper"><span>📰</span>Newspaper</a>
       <a class="tool" href="#/sizes"><span>👕</span>Sizes</a>
-      <button class="tool" id="paste"><span>📋</span>Paste a list</button>
+      <button class="tool" id="tgoals"><span>🎯</span>Team goals</button>
     </div>
-    <div class="row between" style="margin:18px 0 8px"><div class="section-title" style="margin:0">Wrestlers</div><button class="btn primary sm" id="addA">＋ Add wrestler</button></div>` : ''}
-    ${coach ? `<form id="qa" class="card" style="margin-bottom:12px;padding:12px"><div class="tiny" style="margin-bottom:6px">Quick add: type a name, hit Enter, next girl</div>
-      <div class="grid" style="grid-template-columns:1fr 1fr 70px auto;gap:6px">
-        <input class="input" id="qf" placeholder="First" autocapitalize="words" autocomplete="off"><input class="input" id="ql" placeholder="Last" autocapitalize="words" autocomplete="off">
-        <select class="input" id="qg" aria-label="Grade"><option value="">Gr</option>${GRADES.slice(6).map(g => `<option>${g}</option>`).join('')}</select><button class="btn primary">Add</button></div></form>` : ''}
+    <div class="section-title" style="margin-top:22px">Wrestlers</div>` : ''}
+    <div class="row" style="gap:8px;margin-bottom:10px">
+      <input class="input grow" id="rq" placeholder="🔍 Search names…" value="${esc(rFilter.q)}">
+      ${coach ? '<button class="btn primary" id="addA">＋ Add</button>' : ''}
+    </div>
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
-      <input class="input" id="rq" placeholder="🔍 Search names…" value="${esc(rFilter.q)}" style="max-width:320px">
-      ${sites.length ? `<select class="input" id="rs" style="width:auto"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${rFilter.site === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
+      ${sites.length ? `<select class="input input-sm" id="rs"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${rFilter.site === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
       <label class="small muted row" style="gap:6px"><input type="checkbox" id="ri" ${rFilter.showInactive ? 'checked' : ''}> Show inactive</label>
     </div><div class="plist" id="rl"></div>`;
   $('#rq').oninput = (e) => { rFilter.q = e.target.value; draw(); };
   $('#rs') && ($('#rs').onchange = (e) => { rFilter.site = e.target.value; draw(); });
   $('#ri').onchange = (e) => { rFilter.showInactive = e.target.checked; draw(); };
   if (coach) {
-    $('#addA').onclick = () => editAthlete(null, sites, weights, () => viewRoster(main, user));
-    $('#paste').onclick = () => pasteList(sites, user, () => viewRoster(main, user));
+    $('#addA').onclick = () => modal({ title: 'Add wrestlers', body: `<div class="stack">
+        <button class="dr" data-act="one"><span class="grow"><span class="dr-t" style="text-transform:none">One wrestler</span><span class="dr-s">Name, grade, weight class, sizes</span></span><span class="dr-plus">›</span></button>
+        <button class="dr" data-act="many"><span class="grow"><span class="dr-t" style="text-transform:none">Paste a whole list</span><span class="dr-s">One name per line, from a sheet, text or email</span></span><span class="dr-plus">›</span></button>
+        <div class="small muted">Tip: girls can also add themselves on the check-in tablet with “I'm new to the team”.</div></div>`,
+      onAction: (act, el, w, close) => { close(); if (act === 'one') editAthlete(null, sites, weights, () => viewRoster(main, user)); if (act === 'many') pasteList(sites, user, () => viewRoster(main, user)); } });
+    $('#tgoals').onclick = async () => { const tg = await teamGoals(rFilter.site || user.prefs?.site); editTeamGoals(tg, () => toast('Team goals saved', 'success')); };
     $('#csv').onclick = () => exportCsv(athletes, weights, sites);
-    $('#qa').onsubmit = async (e) => {
+    if ($('#qa')) $('#qa').onsubmit = async (e) => {
       e.preventDefault();
       const cap = (x) => x.trim().replace(/\s+/g, ' ').replace(/(^|[\s'-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
       const first = cap($('#qf').value), last = cap($('#ql').value), grade = $('#qg').value;
@@ -76,7 +79,7 @@ export async function viewRoster(main, user) {
       catch (err) { return toast('Not saved: ' + (err.code || err.message), 'error'); }
       $('#qf').value = ''; $('#ql').value = ''; $('#qg').value = ''; $('#qf').focus(); draw();
     };
-    $('#ql').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#qa').requestSubmit(); } };
+    if ($('#ql')) $('#ql').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#qa').requestSubmit(); } };
   }
   draw();
 }
@@ -237,38 +240,35 @@ export async function viewWeighIn(main, user) {
     return rec;
   };
   const match = (a) => !q || `${a.first} ${a.last} ${a.nick || ''}`.toLowerCase().includes(q.toLowerCase());
-  const goalsCard = () => `<div class="card stack" style="margin-bottom:12px"><div class="row between"><b>🏆 Team goals</b><button class="btn sm" data-act="tgedit">Edit</button></div>
-    <div class="small"><span class="tiny">Today</span><br>${esc(tg.day) || '<span class="muted">Not set yet</span>'}</div>
-    ${tg.mid ? `<div class="small"><span class="tiny">Mid-season</span><br>${esc(tg.mid)}</div>` : ''}
-    <div class="small"><span class="tiny">Season</span><br>${esc(tg.season) || '<span class="muted">Not set yet</span>'}</div></div>`;
   const draw = () => {
     const L = list(), waiting = L.filter(a => !isIn(a.id)), inn = L.filter(a => isIn(a.id));
-    $('#wc').innerHTML = `<b style="color:#86efac">${inn.length} here</b> · ${waiting.length} absent`;
+    const pct = L.length ? Math.round(inn.length / L.length * 100) : 0;
+    $('#wc').innerHTML = `<div class="ciprog"><i style="width:${pct}%"></i></div><b style="color:#86efac">${inn.length} here</b> <span class="muted">of ${L.length}</span>`;
     $('#wwait').innerHTML = waiting.filter(match).map(a => `<button class="kname" data-a="${a.id}" data-act="weigh"><b>${esc(a.first)}</b><span>${esc(a.last)}</span></button>`).join('')
       || `<div class="small muted" style="grid-column:1/-1">${waiting.length ? 'No one matches.' : L.length ? '✓ Everyone is checked in.' : 'No girls on the roster yet. Tap ＋ New girl.'}</div>`;
-    $('#win').innerHTML = inn.filter(match).map(a => { const r = recOf(a.id), p = prevW(a.id); return `<div class="wrow" data-a="${a.id}">
-        <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)}</div><div class="as">${p ? `Last: ${p.weight} (${fmtDate(p.date)}) ` : 'First weigh-in '}${p ? diffHTML(r.weight - p.weight) : ''}${flags(r)}</div></div>
-        <button class="btn sm ${r?.goal?.what || r?.feel ? 'primary' : ''}" data-act="goal" title="How I feel & my goal (optional)">${r?.feel ? FACES[r.feel - 1] : '🎯'}</button>
-        <button class="wlock" data-act="weigh" title="Change weight">${typeof r.weight === 'number' ? r.weight : 'add weight'} ✎</button></div>`; }).join('') || '<div class="small muted">No one yet.</div>';
+    $('#wint').classList.toggle('hidden', !inn.length);
+    $('#win').innerHTML = inn.filter(match).map(a => { const r = recOf(a.id), p = prevW(a.id); const d = p && typeof r.weight === 'number' ? Math.round((r.weight - p.weight) * 10) / 10 : null;
+      const extra = [r.feel ? FACES[r.feel - 1] : '', r.goal?.word ? esc(r.goal.word) : ''].filter(Boolean).join(' ');
+      return `<div class="wrow" data-a="${a.id}" data-act="weigh">
+        <div class="grow" style="min-width:0"><div class="an">${esc(a.first)} ${esc(a.last)}</div><div class="as">${d ? diffHTML(d) + ` <span class="muted">since ${fmtDate(p.date)}</span>` : ''}${extra ? ` ${extra}` : ''}${flags(r)}</div></div>
+        <span class="wlock">${typeof r.weight === 'number' ? r.weight : '—'}</span></div>`; }).join('');
   };
-  main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="small" id="wc"></div></div>
-      <div class="row" style="gap:6px"><button class="btn sm" data-act="tablet">📱 Tablet</button><a class="btn go sm" href="#/">Next: practice →</a></div></div>
-    <div class="row" style="gap:8px;margin-bottom:8px">
+  main.innerHTML = `<div class="page-head" style="margin-bottom:10px"><div style="flex:1"><h1>Check-in</h1>
+        <label class="dpick">${wDate === today() ? 'Today' : fmtDate(wDate)} ▾<input type="date" id="wdt" value="${wDate}"></label></div>
+      <button class="btn sm" data-act="tablet">📱 Tablet mode</button></div>
+    <div id="wc" class="small" style="margin-bottom:12px"></div>
+    <div class="row" style="gap:8px;margin-bottom:12px">
       <input class="input grow" id="wq" placeholder="🔍 Find a name…" autocomplete="off">
       <button class="btn primary" data-act="newgirl">＋ New girl</button>
     </div>
-    <div class="row wrap" style="gap:8px;margin-bottom:6px">
-      <input type="date" class="input input-sm" id="wdt" value="${wDate}">
-      ${sites.length ? `<select class="input input-sm" id="wst"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
-    </div>
-    <div class="section-title" style="margin-top:14px">Not checked in = absent</div><div class="small muted" style="margin:-6px 0 10px">Tap her name and enter her weight.</div>
+    ${sites.length ? `<select class="input input-sm" id="wst" style="margin-bottom:10px"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
+    <div class="small muted" style="margin-bottom:8px">Tap her name and enter her weight. Anyone not checked in is absent.</div>
     <div class="kgrid" id="wwait"></div>
-    <div class="section-title">✓ Here</div><div class="plist" id="win"></div>
-    <div class="section-title">Team goals</div><div id="tgc">${goalsCard()}</div>
-    <div class="row wrap" style="gap:8px"><a class="btn ghost sm" href="#/checkins">◷ Check-in history</a><button class="btn ghost sm" id="wcsv">⬇ Export this day</button></div>`;
+    <div class="section-title" id="wint">✓ Here <span style="text-transform:none;letter-spacing:0;font-weight:600">· tap to fix weight or add a goal</span></div><div class="plist" id="win"></div>
+    <div class="row wrap" style="gap:8px;margin-top:22px"><a class="btn ghost sm" href="#/checkins">◷ Check-in history</a><button class="btn ghost sm" id="wcsv">⬇ Export this day</button><a class="btn go sm" href="#/" style="margin-left:auto">Done → Today</a></div>`;
   $('#wq').oninput = (e) => { q = e.target.value; draw(); };
-  $('#wdt').onchange = (e) => { wDate = e.target.value || today(); draw(); };
-  $('#wst') && ($('#wst').onchange = async (e) => { wSite = e.target.value; tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); draw(); });
+  $('#wdt').onchange = (e) => { wDate = e.target.value || today(); viewWeighIn(main, user); };
+  $('#wst') && ($('#wst').onchange = async (e) => { wSite = e.target.value; tg = await teamGoals(wSite); draw(); });
   $('#wcsv').onclick = () => {
     const rows = [['last', 'first', 'date', 'status', 'weight', 'change', 'feeling_1to5', 'sleep_hrs', 'sleep', 'fruit_veg', 'milk', 'goal_word', 'goal', 'last_goal_met']].concat(list().map(a => { const r = recOf(a.id), p = prevW(a.id);
       return [a.last, a.first, wDate, isIn(a.id) ? 'here' : 'absent', r?.weight ?? '', typeof r?.weight === 'number' && p ? Math.round((r.weight - p.weight) * 10) / 10 : '', r?.feel || '', r?.sleepHrs || '', r?.sleepQ || '', r?.fruitVeg ?? '', r?.milk ?? '', r?.goal?.word || '', goalText(r?.goal), r?.prevMet ?? '']; }));
@@ -283,7 +283,7 @@ export async function viewWeighIn(main, user) {
         <input class="input kw" id="ww" inputmode="decimal" enterkeyhint="done" value="${typeof r?.weight === 'number' ? r.weight : ''}" placeholder="—" autocomplete="off">
         <div class="small muted">${p ? `Last: ${p.weight} on ${fmtDate(p.date)}` : 'First weigh-in'}</div>
         <button class="btn go xl" data-act="wsave" style="width:100%">✓ Check in</button>
-        <button class="btn ghost" data-act="wmore">✓ Check in + how I feel &amp; my goal (optional)</button>
+        <button class="btn ghost" data-act="wmore">${isIn(a.id) ? '✓ Save + how she feels &amp; her goal' : '✓ Check in + how she feels &amp; her goal'} <span class="muted">(optional)</span></button>
         ${isIn(a.id) ? '<button class="btn ghost sm" data-act="wabs" style="color:#fca5a5">Undo check-in (she\'s not here)</button>' : ''}</div>`,
       onAction: async (act, el, w, close) => {
         if (act === 'wabs') { try { await saveRec(a.id, { weight: undefined, here: undefined }); close(); draw(); } catch (e) { toast(e.code || e.message, 'error'); } return; }
@@ -329,7 +329,6 @@ export async function viewWeighIn(main, user) {
   };
   main.onclick = async (e) => {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
-    if (b.dataset.act === 'tgedit') return editTeamGoals(tg, async () => { tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); });
     if (b.dataset.act === 'newgirl') return newGirl();
     if (b.dataset.act === 'tablet') { const { startTablet } = await import('./tablet.js'); return startTablet(sites, user); }
     const a = athletes.find(x => x.id === b.closest('[data-a]')?.dataset.a); if (!a) return;

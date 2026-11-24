@@ -66,7 +66,7 @@ export async function viewTablet(app) {
   const idle = (ms = 45000) => { clearTimeout(idleT); idleT = setTimeout(() => home(), ms); };
 
   app.innerHTML = `<div class="tab"><header class="tab-h">
-      <div><div class="tab-team">${esc(TEAM_NAME)}${C.siteName ? ' · ' + esc(C.siteName) : ''}</div><div class="tab-date">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div></div>
+      <span class="tab-mark">BJ</span><div><div class="tab-team">${esc(TEAM_NAME)}${C.siteName ? ' · ' + esc(C.siteName) : ''}</div><div class="tab-date">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div></div>
       <div class="tab-count" id="tc"></div>
       <button class="tab-lock" id="tlock" aria-label="Coach unlock">🔒</button></header>
     <div id="tbody" class="tab-body"></div></div>`;

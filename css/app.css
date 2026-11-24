@@ -637,3 +637,18 @@ body.tablet-mode { overscroll-behavior: none; }
 .shake { animation: shake .35s; }
 @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-12px); } 75% { transform: translateX(12px); } }
 @media (max-width: 600px) { .tab-faces button { width: 58px; height: 58px; font-size: 32px; } .pad button { height: 64px; } .tab-wt { font-size: 56px; } }
+
+/* ---- round 3 ---- */
+.ciprog { height: 8px; border-radius: 99px; background: #1a2442; overflow: hidden; margin-bottom: 6px; }
+.ciprog i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #16a34a, #4ade80); transition: width .4s; }
+.dpick { position: relative; display: inline-block; color: var(--gold); font-weight: 800; font-size: 14px; cursor: pointer; }
+.dpick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.two .btn { width: 100%; }
+#win .wrow { cursor: pointer; padding: 12px 14px; }
+#win .wlock { font-family: var(--mono); font-weight: 900; font-size: 20px; color: #86efac; background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); border-radius: 12px; padding: 6px 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+select.chip { background: transparent; }
+select.chip option { background: var(--panel); color: var(--text); }
+.tab-mark { width: 44px; height: 44px; border-radius: 12px; background: var(--gold); color: #0b1020; display: grid; place-items: center; font-weight: 900; font-style: italic; font-size: 18px; flex: none; box-shadow: 0 6px 18px -6px rgba(250,204,21,.6); }
+.tstep.done { padding-top: 14px; padding-bottom: 14px; }

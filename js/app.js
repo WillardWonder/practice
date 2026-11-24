@@ -308,14 +308,14 @@ async function viewPractices() {
     bindRows();
   };
   $('main').innerHTML = `${plansNav('practices')}<div class="page-head"><h1>Practices</h1>
-      <div class="row wrap">${can(user, 'edit') ? `<button class="btn" data-dictate>🎤 Dictate</button><a class="btn primary" href="#/new/blank">＋ New</a>` : ''}</div></div>
+      <div class="row" style="gap:6px">${can(user, 'edit') ? `<button class="btn sm" data-dictate>🎤 Say it</button><a class="btn primary sm" href="#/new/blank">＋ New</a>` : ''}</div></div>
     <input class="input" id="q" placeholder="🔍 Search practices or drills…" value="${esc(pFilter.q)}" style="margin-bottom:10px">
-    <div class="row wrap" style="gap:8px;margin-bottom:14px">
-      <div class="seg">${[['all', 'All'], ['upcoming', 'Upcoming'], ['mine', 'Mine'], ['canceled', 'Canceled']].map(([k, l]) => `<button data-tab="${k}" class="${pFilter.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <select class="input" id="lv" style="width:auto"><option value="">All levels</option>${LEVELS.map(l => `<option ${pFilter.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      ${can(user, 'edit') ? '<label class="btn sm ghost">Import file<input type="file" id="imp" accept=".json" hidden></label>' : ''}
+    <div class="chips" style="margin-bottom:14px">
+      ${[['all', 'All'], ['upcoming', 'Upcoming'], ['mine', 'Mine']].map(([k, l]) => `<button class="chip ${pFilter.tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}
+      <select class="chip" id="lv" style="appearance:none;-webkit-appearance:none"><option value="">All levels ▾</option>${LEVELS.map(l => `<option ${pFilter.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
-    <div class="plist" id="plist"></div>`;
+    <div class="plist" id="plist"></div>
+    <div class="row wrap" style="gap:8px;margin-top:18px"><button class="btn ghost sm" data-tab="canceled">Show canceled</button>${can(user, 'edit') ? '<label class="btn sm ghost">⬆ Import a practice file<input type="file" id="imp" accept=".json" hidden></label>' : ''}</div>`;
   $('#q').oninput = (e) => { pFilter.q = e.target.value; draw(); };
   $('#lv').onchange = (e) => { pFilter.level = e.target.value; draw(); };
   $$('[data-tab]').forEach(b => b.onclick = () => { pFilter.tab = b.dataset.tab; $$('[data-tab]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
@@ -412,8 +412,8 @@ async function viewToday() {
     ${otherLive.length ? `<a class="roomlink" href="#/now" style="margin:0 0 12px;border-style:solid;border-color:rgba(239,68,68,.4)"><span class="q3-ic" style="--c:#ef4444">●</span><span class="grow"><b>${otherLive.length === 1 ? esc(otherLive[0].practiceTitle) + ' is live' : otherLive.length + ' practices are live'}</b><small>${otherLive.map(r => esc(r.siteName || r.coachName || '')).join(' · ')}</small></span><span class="muted">›</span></a>` : ''}
     <div class="stack">
       ${step(1, 'Check girls in', ci && ci.here > 0,
-        `<div class="small muted" style="margin:4px 0 10px">${ci && ci.total ? `<b style="color:#86efac">${ci.here} here</b> · ${ci.absent} not checked in yet` : 'No roster yet. Girls can add themselves on the tablet.'}</div>
-         <div class="row wrap" style="gap:8px"><a class="btn ${ci && ci.here ? '' : 'primary'}" href="#/weighin">✓ Check in from my phone</a><button class="btn" data-act="tablet">📱 Tablet check-in</button></div>`)}
+        `${ci && ci.total ? `<div class="ciprog" style="margin:8px 0 6px"><i style="width:${Math.round(ci.here / ci.total * 100)}%"></i></div><div class="small" style="margin-bottom:10px"><b style="color:#86efac">${ci.here} here</b> <span class="muted">of ${ci.total}</span></div>` : '<div class="small muted" style="margin:4px 0 10px">No roster yet. Girls can add themselves on the tablet.</div>'}
+         <div class="two"><a class="btn ${ci && ci.here ? '' : 'primary'}" href="#/weighin">✓ My phone</a><button class="btn" data-act="tablet">📱 Tablet mode</button></div>`)}
       ${step(2, "Pick today's practice", !!pick,
         pick ? `<div class="tpick"><b>${esc(pick.title)}</b><span class="small muted">${Math.round(practiceDuration(pick) / 60)} min · ${(pick.blocks || []).length} blocks</span>
             <div class="catbar" style="margin-top:8px">${catbar(pick)}</div></div>
