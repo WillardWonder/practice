@@ -240,6 +240,53 @@ export async function viewWeighIn(main, user) {
     return rec;
   };
   const match = (a) => !q || `${a.first} ${a.last} ${a.nick || ''}`.toLowerCase().includes(q.toLowerCase());
+  async function voiceCheck() {
+    const V = await import('./voicecheck.js');
+    const L = list();
+    let rec = null, rows = [];
+    const m = modal({ title: '🎤 Say names and weights', body: `<div class="stack">
+        <div class="small muted">Say it like <b>“Kenzie one twenty one, Ava ninety eight point five, Zoe Carter 132.”</b> Or type it. Check the list, then save.</div>
+        ${V.speechSupported() ? '<button class="btn lg" data-act="mic" id="vmic" style="width:100%">🎤 Tap and talk</button>' : '<div class="small muted">Voice isn\'t available in this browser. Typing works.</div>'}
+        <textarea class="input" id="vtext" rows="3" placeholder="Kenzie 121, Ava 98.5, Zoe Carter 132"></textarea>
+        <div class="plist" id="vrows"></div></div>`,
+      footer: `<button class="btn" data-act="close">Cancel</button><button class="btn go lg" data-act="vsave" id="vsave" disabled>✓ Check them in</button>`,
+      onClose: () => rec?.stop(),
+      onAction: async (act, el, w, close) => {
+        if (act === 'mic') {
+          if (rec) { rec.stop(); return; }
+          const before = w.querySelector('#vtext').value.trim();
+          rec = V.listen({ onText: (t) => { w.querySelector('#vtext').value = (before ? before + ', ' : '') + t; parse(); },
+            onEnd: (err) => { rec = null; const b = w.querySelector('#vmic'); if (b) { b.textContent = '🎤 Tap and talk'; b.classList.remove('rec'); } if (err && err !== 'no-speech' && err !== 'aborted') toast(err === 'not-allowed' ? 'Allow the microphone for this site, then try again.' : 'Mic: ' + err, 'error'); } });
+          el.textContent = '⏹ Listening… tap to stop'; el.classList.add('rec'); return;
+        }
+        if (act === 'vsave') {
+          rec?.stop();
+          const ok = rows.filter(r => r.athlete && r.weight);
+          try { for (const r of ok) await saveRec(r.athlete.id, { weight: r.weight }); }
+          catch (err) { return toast('Not saved: ' + (err.code || err.message), 'error'); }
+          close(); draw(); toast(`✓ Checked in ${ok.length} girl${ok.length === 1 ? '' : 's'}`, 'success');
+        }
+      } });
+    const w = m.el;
+    const paint = () => {
+      w.querySelector('#vrows').innerHTML = rows.map((r, i) => `<div class="prow" style="padding:10px 12px">
+          <div class="grow" style="min-width:0">${r.athlete ? `<div class="pr-t" style="text-transform:none">${esc(r.athlete.first)} ${esc(r.athlete.last)}</div>`
+            : `<select class="input input-sm" data-pick="${i}" style="width:100%"><option value="">${r.matches.length > 1 ? 'Which one?' : `“${esc(r.said || '?')}”: pick her`}</option>${(r.matches.length > 1 ? r.matches : L).map(a => `<option value="${a.id}">${esc(a.first)} ${esc(a.last)}</option>`).join('')}</select>`}
+            ${r.athlete && isIn(r.athlete.id) ? '<div class="pr-s" style="color:#fde68a">Already checked in. This replaces her weight.</div>' : ''}</div>
+          <input class="input input-sm" data-wt="${i}" inputmode="decimal" value="${r.weight ?? ''}" placeholder="lbs" style="width:84px;text-align:center;font-weight:800${r.weight ? '' : ';border-color:#ef4444'}">
+          <button class="btn sm ghost" data-rm="${i}" aria-label="Remove">✕</button></div>`).join('');
+      const ready = rows.filter(r => r.athlete && r.weight).length;
+      const sv = w.querySelector('#vsave'); sv.disabled = !ready; sv.textContent = ready ? `✓ Check in ${ready}` : '✓ Check them in';
+    };
+    const parse = () => { rows = V.parseWeighins(w.querySelector('#vtext').value, L); paint(); };
+    w.querySelector('#vtext').oninput = parse;
+    w.querySelector('#vrows').onchange = (e) => {
+      const p = e.target.dataset.pick, t = e.target.dataset.wt;
+      if (p != null) { rows[p].athlete = L.find(a => a.id === e.target.value) || null; paint(); }
+      if (t != null) { const n = parseFloat(e.target.value); rows[t].weight = n >= 40 && n <= 400 ? Math.round(n * 10) / 10 : null; paint(); }
+    };
+    w.querySelector('#vrows').onclick = (e) => { const k = e.target.closest('[data-rm]')?.dataset.rm; if (k != null) { rows.splice(+k, 1); paint(); } };
+  }
   const draw = () => {
     const L = list(), waiting = L.filter(a => !isIn(a.id)), inn = L.filter(a => isIn(a.id));
     const pct = L.length ? Math.round(inn.length / L.length * 100) : 0;
@@ -259,6 +306,7 @@ export async function viewWeighIn(main, user) {
     <div id="wc" class="small" style="margin-bottom:12px"></div>
     <div class="row" style="gap:8px;margin-bottom:12px">
       <input class="input grow" id="wq" placeholder="🔍 Find a name…" autocomplete="off">
+      <button class="btn" data-act="voice" title="Say names and weights">🎤</button>
       <button class="btn primary" data-act="newgirl">＋ New girl</button>
     </div>
     ${sites.length ? `<select class="input input-sm" id="wst" style="margin-bottom:10px"><option value="all">All buildings</option>${sites.map(s => `<option value="${s.id}" ${wSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : ''}
@@ -330,6 +378,7 @@ export async function viewWeighIn(main, user) {
   main.onclick = async (e) => {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
     if (b.dataset.act === 'newgirl') return newGirl();
+    if (b.dataset.act === 'voice') return voiceCheck();
     if (b.dataset.act === 'tablet') { const { startTablet } = await import('./tablet.js'); return startTablet(sites, user); }
     const a = athletes.find(x => x.id === b.closest('[data-a]')?.dataset.a); if (!a) return;
     if (b.dataset.act === 'weigh') weighSheet(a);

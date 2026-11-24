@@ -1,0 +1,16 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseWeighins } from '../js/voicecheck.js';
+const R = [{ id: 'k', first: 'Kenzie', last: 'Smith' }, { id: 'a', first: 'Ava', last: 'Jones' }, { id: 'z', first: 'Zoe', last: 'Carter' }, { id: 'z2', first: 'Zoe', last: 'Lee' }, { id: 'm', first: 'Mackenzie', last: 'Brown' }, { id: 's', first: 'Sophie', last: 'De La Cruz' }];
+const P = (t) => parseWeighins(t, R).map(r => [r.athlete?.id ?? (r.matches.length > 1 ? 'AMBIG' : null), r.weight]);
+test('digits from speech engine', () => assert.deepEqual(P('Kenzie 121.4 Ava 98'), [['k', 121.4], ['a', 98]]));
+test('spoken words', () => assert.deepEqual(P('kenzie one twenty one ava ninety eight point five'), [['k', 121], ['a', 98.5]]));
+test('hundred form', () => assert.deepEqual(P('Ava one hundred five'), [['a', 105]]));
+test('one oh five', () => assert.deepEqual(P('Ava one oh five'), [['a', 105]]));
+test('commas and lbs', () => assert.deepEqual(P('Kenzie, 121 lbs, Ava 98 pounds'), [['k', 121], ['a', 98]]));
+test('ambiguous first name → asks', () => assert.deepEqual(P('Zoe 132'), [['AMBIG', 132]]));
+test('last name disambiguates', () => assert.deepEqual(P('Zoe Carter 132 Zoe Lee 110'), [['z', 132], ['z2', 110]]));
+test('misheard name', () => assert.deepEqual(P('Kenzy 121'), [['k', 121]]));
+test('Mackenzie vs Kenzie', () => assert.deepEqual(P('Mackenzie 140 Kenzie 121'), [['m', 140], ['k', 121]]));
+test('accented / multi-word last name', () => assert.deepEqual(P('Sophie de la cruz 110'), [['s', 110]]));
+test('silly weight rejected', () => assert.deepEqual(P('Ava 9'), [['a', null]]));
