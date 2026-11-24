@@ -10,6 +10,7 @@ import { runChecks } from './check.js';
 import { openDictate } from './dictate.js';
 import { viewRoster, viewWeighIn, viewLineup, viewSizes, viewPaper, viewCheckins, viewMeets, viewKiosk, checkinSummary, goalIsToday, goalText, practiceGoalSheet, publishTeamGoal } from './roster.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO, OWNER_EMAIL } from './config.js';
+import { viewTablet, startTablet, tabletOn } from './tablet.js';
 
 const PRESET_VERSION = '3';
 const app = $('#app');
@@ -45,6 +46,10 @@ async function route() {
   if (name === 'share') return viewShare(id);
   if (!user) return viewLogin();
   if (!can(user, 'member')) return viewPending();
+  // A locked check-in tablet only ever shows the tablet screen.
+  if (tabletOn() && can(user, 'edit')) { if (name !== 'tablet') history.replaceState(null, '', '#/tablet'); app.innerHTML = ''; return viewTablet(app); }
+  if (name === 'tablet') return can(user, 'edit') ? (location.hash = '#/weighin') : (location.hash = '#/');
+  if (name === '' && can(user, 'edit')) { shell('', ''); return viewToday(); }
   const views = {
     '': viewHome, practices: viewPractices, p: viewPractice, edit: viewEdit, new: viewNew, run: viewRun, live: viewLiveRun,
     room: viewRoom, now: viewNow, roster: () => { shell('roster', ''); viewRoster($('main'), user); }, weighin: () => { shell('roster', ''); viewWeighIn($('main'), user); }, lineup: () => { shell('roster', ''); viewLineup($('main'), user); }, today: () => { shell('', ''); viewToday(); }, checkins: () => { shell('roster', ''); viewCheckins($('main'), user, id); }, kiosk: () => { shell('roster', ''); viewKiosk($('main'), user); }, meets: () => { shell('roster', ''); viewMeets($('main'), user, id); }, sizes: () => { shell('roster', ''); viewSizes($('main'), user); }, paper: () => { shell('roster', ''); viewPaper($('main'), user); }, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
@@ -61,12 +66,13 @@ const ICON = {
   library: '<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v15H5.5A1.5 1.5 0 0 0 4 19.5z"/><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H20v-3"/>',
   admin: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 15H3.5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 4.6V3.5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.3.8z"/>',
 };
-const icon = (k) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
+const icon = (k) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ICON['']}</svg>`;
 const initials = (u) => ((u.name || u.email || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(x => x[0]).join('') || '?').toUpperCase();
 function shell(active, inner) {
-  let tabs = [['', 'Home', '⌂'], ['practices', 'Practices', '▤'], ['now', 'Live', '●'], ['roster', 'Roster', '☺'], ['history', 'History', '◷'], ['library', 'Library', '☰']];
-  if (can(user, 'admin')) tabs.push(['admin', 'Admin', '⚙']);
-  if (user.role === 'athlete') tabs = tabs.filter(t => ['', 'practices', 'now'].includes(t[0]));
+  // Coaches: three places. Today (check-in → practice → start), Plans (practices, library, history), Team (roster & tools).
+  let tabs = can(user, 'edit') ? [['', 'Today'], ['practices', 'Plans'], ['roster', 'Team']]
+    : user.role === 'athlete' ? [['', 'Home'], ['practices', 'Practices'], ['now', 'Live']]
+    : [['', 'Home'], ['practices', 'Practices'], ['now', 'Live'], ['roster', 'Team']];
   app.innerHTML = `
     ${!isFirebase ? `<div class="demo-banner">Local Demo mode: data stays in this browser only. ${user.role !== 'owner' ? '' : ''}Preview as:
       <select id="demorole" style="background:transparent;border:1px solid #a16207;border-radius:8px;padding:2px 6px">${ROLES.filter(r => r !== 'pending').map(r => `<option value="${r}" ${user.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select></div>` : ''}
@@ -79,7 +85,7 @@ function shell(active, inner) {
       </div></div></header>
     <div id="livebar">${liveBar()}</div>
     <main class="page">${inner}</main>
-    <nav class="tabbar">${tabs.slice(0, 5).map(([h, l]) => `<a href="#/${h}" class="${active === h ? 'on' : ''}">${icon(h)}<span>${l}</span></a>`).join('')}</nav>`;
+    <nav class="tabbar">${tabs.map(([h, l]) => `<a href="#/${h}" class="${active === h ? 'on' : ''}">${icon(h)}<span>${l}</span></a>`).join('')}</nav>`;
   $('#usermenu').onclick = userMenu;
   const dr = $('#demorole'); if (dr) dr.onchange = () => store.setDemoRole(dr.value);
 }
@@ -96,7 +102,7 @@ function userMenu() {
     <div class="muted small">${esc(user.email)} · <span class="badge ${user.role === 'owner' || user.role === 'admin' ? 'gold' : ''}">${ROLE_LABEL[user.role]}</span></div>
     <label class="field" id="mysite-wrap"><span class="tiny">My building</span><select class="input" id="mysite"><option value="">Loading…</option></select></label>
     <button class="btn lg" style="width:100%" data-act="sound">🔊 Sound & voice settings (this device)</button>
-    <div class="row wrap mobile-only" style="gap:8px"><a class="btn" href="#/room">📺 Room display</a><a class="btn" href="#/library">☰ Library</a>${can(user, 'admin') ? '<a class="btn" href="#/admin">⚙ Admin</a>' : ''}<a class="btn" href="#/history">◷ History</a></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:8px"><a class="btn" href="#/room">📺 Room TV</a><a class="btn" href="#/now">● Live, all buildings</a>${can(user, 'admin') ? '<a class="btn" href="#/admin">⚙ Admin</a>' : ''}</div>
     <a class="btn lg" style="width:100%" href="#/check">✓ Check my access</a>
     ${isFirebase ? '<button class="btn lg danger" style="width:100%" data-act="out">Sign out</button>' : ''}
     <div class="motto small" style="margin-top:12px">${MOTTO.map(esc).join('<span>•</span>')}</div></div>`,
@@ -301,7 +307,7 @@ async function viewPractices() {
     $('#plist').innerHTML = list.length ? list.map(prow).join('') : `<div class="empty">No practices match.</div>`;
     bindRows();
   };
-  $('main').innerHTML = `<div class="page-head"><h1>Practices</h1>
+  $('main').innerHTML = `${plansNav('practices')}<div class="page-head"><h1>Practices</h1>
       <div class="row wrap">${can(user, 'edit') ? `<button class="btn" data-dictate>🎤 Dictate</button><a class="btn primary" href="#/new/blank">＋ New</a>` : ''}</div></div>
     <input class="input" id="q" placeholder="🔍 Search practices or drills…" value="${esc(pFilter.q)}" style="margin-bottom:10px">
     <div class="row wrap" style="gap:8px;margin-bottom:14px">
@@ -322,6 +328,12 @@ async function viewPractices() {
     } catch (e) { toast('Could not import: ' + e.message, 'error'); }
   };
   draw();
+}
+
+function plansNav(on) {
+  if (user.role === 'athlete') return '';
+  const items = [['practices', 'Practices'], ['library', 'Drill library'], ['history', 'History']];
+  return `<nav class="subnav">${items.map(([h, l]) => `<a href="#/${h}" class="${on === h ? 'on' : ''}">${l}</a>`).join('')}</nav>`;
 }
 
 // ---- Single practice -------------------------------------------------
@@ -394,29 +406,33 @@ async function viewToday() {
   const live = liveRuns.find(r => pick && r.practiceId === pick.id);
   const here = ci ? ci.total - ci.absent : 0;
   const step = (n, title, done, body) => `<div class="tstep ${done ? 'done' : ''}"><div class="tn">${done ? '✓' : n}</div><div class="grow" style="min-width:0"><b>${title}</b>${body}</div></div>`;
-  main.innerHTML = `<div class="page-head"><div><h1>Today</h1><div class="muted small">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}${sites.find(x => x.id === site) ? ' · ' + esc(sites.find(x => x.id === site).name) : ''}</div></div></div>
+  const otherLive = liveRuns.filter(r => r !== live);
+  main.innerHTML = `<div class="today-h"><div class="hero-date">${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}${sites.find(x => x.id === site) ? ' · ' + esc(sites.find(x => x.id === site).name) : ''}</div>
+      <h1>Today</h1><div class="motto">${MOTTO.map(esc).join('<span>•</span>')}</div></div>
+    ${otherLive.length ? `<a class="roomlink" href="#/now" style="margin:0 0 12px;border-style:solid;border-color:rgba(239,68,68,.4)"><span class="q3-ic" style="--c:#ef4444">●</span><span class="grow"><b>${otherLive.length === 1 ? esc(otherLive[0].practiceTitle) + ' is live' : otherLive.length + ' practices are live'}</b><small>${otherLive.map(r => esc(r.siteName || r.coachName || '')).join(' · ')}</small></span><span class="muted">›</span></a>` : ''}
     <div class="stack">
-      ${step(1, 'Check-in, weigh-in & goals', ci && ci.here > 0,
-        `<div class="small muted" style="margin:4px 0 8px">${ci && ci.total ? `${ci.here} here · ${ci.absent} absent (not checked in)` : 'No roster yet. Tap Open check-in, then ＋ New girl.'}</div>
-         <a class="btn ${ci && ci.here ? '' : 'primary'}" href="#/weighin">✓ Open check-in</a>`)}
-      ${step(2, "Today's practice", !!pick,
-        pick ? `<div style="margin:4px 0 6px"><b style="text-transform:uppercase">${esc(pick.title)}</b> <span class="small muted">${Math.round(practiceDuration(pick) / 60)} min · ${(pick.blocks || []).length} blocks</span></div>
-          ${todays.length > 1 ? `<select class="input" id="tpick" style="width:auto;margin-bottom:8px">${todays.map(p => `<option value="${p.id}" ${p.id === pick.id ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select>` : ''}
-          <div class="row wrap" style="gap:6px"><a class="btn sm" href="#/edit/${pick.id}">✎ Edit</a><button class="btn sm ghost" data-act="tchoose">Use a different one</button></div>`
-        : `<div class="small muted" style="margin:4px 0 8px">Pick the practice you're running today.</div><div class="row wrap" style="gap:6px"><button class="btn primary" data-act="tchoose">▤ Use a saved practice</button><a class="btn" href="#/new/blank">＋ Build new</a><button class="btn" data-dictate>🎤 Dictate</button></div>`)}
-      ${step(3, "Today's practice goal (optional)", pick && goalIsToday(pick),
-        pick ? (goalIsToday(pick) ? `<div class="small" style="margin-top:4px">🎯 ${esc(goalText(pick.goal))}</div><button class="btn sm ghost" data-act="tgoal" style="margin-top:6px">Change</button>`
-          : `<div class="small muted" style="margin:4px 0 8px">${pick.goal?.what ? `Last goal: ${esc(goalText(pick.goal))}. Set one for today if you want.` : 'Optional.'}</div><button class="btn" data-act="tgoal">🎯 Set today's goal</button>`)
-          : '<div class="small muted" style="margin-top:4px">Pick a practice first.</div>')}
-      ${step(4, 'Start practice', !!live,
-        `<div style="margin-top:8px">${live ? `<a class="btn gold xl" href="#/live/${live.id}" style="width:100%">Open live practice</a>`
+      ${step(1, 'Check girls in', ci && ci.here > 0,
+        `<div class="small muted" style="margin:4px 0 10px">${ci && ci.total ? `<b style="color:#86efac">${ci.here} here</b> · ${ci.absent} not checked in yet` : 'No roster yet. Girls can add themselves on the tablet.'}</div>
+         <div class="row wrap" style="gap:8px"><a class="btn ${ci && ci.here ? '' : 'primary'}" href="#/weighin">✓ Check in from my phone</a><button class="btn" data-act="tablet">📱 Tablet check-in</button></div>`)}
+      ${step(2, "Pick today's practice", !!pick,
+        pick ? `<div class="tpick"><b>${esc(pick.title)}</b><span class="small muted">${Math.round(practiceDuration(pick) / 60)} min · ${(pick.blocks || []).length} blocks</span>
+            <div class="catbar" style="margin-top:8px">${catbar(pick)}</div></div>
+          ${todays.length > 1 ? `<select class="input input-sm" id="tpick" style="margin-bottom:8px">${todays.map(p => `<option value="${p.id}" ${p.id === pick.id ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select>` : ''}
+          <button class="tgoal ${goalIsToday(pick) ? 'ok' : ''}" data-act="tgoal">🎯 ${goalIsToday(pick) ? esc(goalText(pick.goal)) : 'Add a practice goal <span class="muted">(optional)</span>'}</button>
+          <div class="row wrap" style="gap:6px;margin-top:8px"><a class="btn sm" href="#/edit/${pick.id}">✎ Edit</a><button class="btn sm ghost" data-act="tchoose">Use a different one</button></div>`
+        : `<div class="small muted" style="margin:4px 0 10px">Use one you've run before, build one, or just say what you want.</div>
+          <div class="pickopts"><button class="q3" data-act="tchoose"><span class="q3-ic" style="--c:#22c55e">▤</span><span>Saved practice</span></button><a class="q3" href="#/new/blank"><span class="q3-ic" style="--c:#3b82f6">＋</span><span>Build new</span></a><button class="q3" data-dictate><span class="q3-ic" style="--c:#a78bfa">🎤</span><span>Say it</span></button></div>`)}
+      ${step(3, 'Start practice', !!live,
+        `<div style="margin-top:10px">${live ? `<a class="btn gold xl" href="#/live/${live.id}" style="width:100%">Open live practice</a>`
           : `<button class="btn go xl" data-act="tstart" style="width:100%" ${pick ? '' : 'disabled'}>▶ Start practice</button>`}</div>`)}
-    </div>`;
+    </div>
+    <a class="roomlink" href="#/room"><span class="q3-ic" style="--c:#facc15">📺</span><span class="grow"><b>Room TV</b><small>Open on the TV. It follows practice by itself.</small></span><span class="muted">›</span></a>`;
   bindDictate();
   const tp = $('#tpick'); if (tp) tp.onchange = () => { sessionStorage.setItem('today-pick', tp.value); viewToday(); };
   main.onclick = async (e) => {
     const a = e.target.closest('[data-act]'); if (!a || a.disabled) return;
     if (a.dataset.act === 'tstart') location.hash = `#/run/${pick.id}`;
+    if (a.dataset.act === 'tablet') startTablet(sites, user);
     if (a.dataset.act === 'tgoal') practiceGoalSheet(pick, async (goal) => {
       const p = { ...pick, goal };
       if (canEditPractice(user, p)) await store.savePractice(p); else { const c = { ...p }; delete c.id; c.ownerUid = null; c.ownerName = null; await store.savePractice(c); sessionStorage.setItem('today-pick', c.id); }
@@ -468,7 +484,7 @@ function viewNow() {
 // ---- Library ---------------------------------------------------------
 let libQ = '', libCat = '';
 async function viewLibrary() {
-  shell('library', `<div class="muted">Loading…</div>`);
+  shell('practices', `<div class="muted">Loading…</div>`);
   let drills = await store.listDrills().catch(e => { toast(e.message, 'error'); return []; });
   const canEditDrill = (d) => can(user, 'admin') || (can(user, 'library') && d.createdBy === user.uid);
   const draw = () => {
@@ -500,7 +516,7 @@ async function viewLibrary() {
           try { const saved = await store.saveDrill(nd); drills = drills.filter(x => x.id !== saved.id).concat(saved); close(); draw(); toast('Saved', 'success'); } catch (e) { toast(e.code || e.message, 'error'); } }
       } });
   };
-  $('main').innerHTML = `<div class="page-head"><div><h1>Drill Library</h1><div class="muted small">${drills.length} moves shared by every coach. Last season's full list is included.</div></div>
+  $('main').innerHTML = `${plansNav('library')}<div class="page-head"><div><h1>Drill Library</h1><div class="muted small">${drills.length} moves shared by every coach. Last season's full list is included.</div></div>
     ${can(user, 'library') ? '<button class="btn primary" id="nd">＋ New custom move</button>' : ''}</div>
     <div class="row wrap" style="gap:8px;margin-bottom:6px"><input class="input" id="lq" placeholder="Search moves, descriptions, cues…" value="${esc(libQ)}" style="max-width:360px">
       ${['', ...CATEGORIES.filter(c => c.id !== 'Rest').map(c => c.id)].map(c => `<button class="chip ${libCat === c ? 'on' : ''}" data-c="${c}">${c ? `<span class="dot" style="background:${catColor(c)}"></span>` : ''}${c || 'All'}</button>`).join('')}</div>
@@ -514,14 +530,14 @@ async function viewLibrary() {
 // ---- History ---------------------------------------------------------
 async function viewHistory() {
   if (user.role === 'athlete') { location.hash = '#/'; return; }
-  shell('history', `<div class="muted">Loading…</div>`);
+  shell('practices', `<div class="muted">Loading…</div>`);
   let runs = (await store.listRuns().catch(e => { toast(e.message, 'error'); return []; })).filter(r => !r.test);
   const done = runs.filter(r => r.status === 'completed' || r.status === 'ended');
   const weekAgo = Date.now() - 7 * 864e5;
   const catMin = {};
   done.forEach(r => (r.log || []).forEach(l => { if (!l.skipped && l.kind !== 'rest') catMin[l.category || 'Other'] = (catMin[l.category || 'Other'] || 0) + (l.plannedSec + (l.adjustSec || 0) + (l.overtimeSec || 0)) / 60; }));
   const catTotal = Object.values(catMin).reduce((a, b) => a + b, 0) || 1;
-  $('main').innerHTML = `<div class="page-head"><h1>History</h1><button class="btn sm" id="csv">Export CSV</button></div>
+  $('main').innerHTML = `${plansNav('history')}<div class="page-head"><h1>History</h1><button class="btn sm" id="csv">Export CSV</button></div>
     <div class="grid c4 stats">
       <div class="card stat"><div class="tiny">Practices run</div><div class="v">${done.length}</div></div>
       <div class="card stat"><div class="tiny">Last 7 days</div><div class="v">${done.filter(r => r.startedAt > weekAgo).length}</div></div>
@@ -552,7 +568,7 @@ const stale = (r) => r.status === 'live' && Date.now() - (r.heartbeat || 0) > 3 
 const runBadge = (r) => stale(r) ? '<span class="badge">Abandoned</span>' : r.status === 'live' ? '<span class="badge red">Live</span>' : r.status === 'completed' ? '<span class="badge green">Completed</span>' : '<span class="badge gold">Ended early</span>';
 
 async function viewRunDetail(id) {
-  shell('history', `<div class="muted">Loading…</div>`);
+  shell('practices', `<div class="muted">Loading…</div>`);
   const r = await store.getRun(id).catch(() => null);
   if (!r) { $('main').innerHTML = `<div class="empty">Not found.</div>`; return; }
   const coach = can(user, 'edit');
@@ -600,7 +616,7 @@ async function viewRunDetail(id) {
 // ---- Admin -----------------------------------------------------------
 async function viewAdmin() {
   if (!can(user, 'admin')) { location.hash = '#/'; return; }
-  shell('admin', `<div class="muted">Loading…</div>`);
+  shell('', `<div class="muted">Loading…</div>`);
   const [users, invites, sites] = await Promise.all([store.listUsers().catch(() => []), store.listInvites().catch(() => []), store.listSites().catch(() => [])]);
   const assignable = ROLES.filter(r => r !== 'owner');
   $('main').innerHTML = `<div class="page-head"><h1>Admin</h1></div>

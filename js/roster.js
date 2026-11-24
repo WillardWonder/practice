@@ -37,7 +37,7 @@ export async function viewRoster(main, user) {
     $('#rcount').textContent = `${list.length} wrestler${list.length === 1 ? '' : 's'}`;
     $$('[data-a]').forEach(b => b.onclick = () => coach && editAthlete(athletes.find(x => x.id === b.dataset.a), sites, weights, () => viewRoster(main, user)));
   };
-  main.innerHTML = `<div class="page-head"><div><h1>Roster</h1><div class="muted small" id="rcount"></div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Team</h1><div class="muted small" id="rcount"></div></div>
       ${coach ? `<button class="btn ghost sm" id="csv">⬇ Export</button>` : ''}</div>
     ${coach ? `<a class="todaybar" href="#/weighin" style="margin:0 0 12px"><span class="tb-ic">✓</span><span class="grow"><b>Check-in &amp; weigh-in</b><span class="small">Tap her name, enter her weight</span></span><span class="tb-go">›</span></a>
     <div class="tools">
@@ -252,7 +252,7 @@ export async function viewWeighIn(main, user) {
         <button class="wlock" data-act="weigh" title="Change weight">${typeof r.weight === 'number' ? r.weight : 'add weight'} ✎</button></div>`; }).join('') || '<div class="small muted">No one yet.</div>';
   };
   main.innerHTML = `<div class="page-head"><div><h1>Check-in</h1><div class="small" id="wc"></div></div>
-      <a class="btn go sm" href="#/today">Next: practice →</a></div>
+      <div class="row" style="gap:6px"><button class="btn sm" data-act="tablet">📱 Tablet</button><a class="btn go sm" href="#/">Next: practice →</a></div></div>
     <div class="row" style="gap:8px;margin-bottom:8px">
       <input class="input grow" id="wq" placeholder="🔍 Find a name…" autocomplete="off">
       <button class="btn primary" data-act="newgirl">＋ New girl</button>
@@ -331,6 +331,7 @@ export async function viewWeighIn(main, user) {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
     if (b.dataset.act === 'tgedit') return editTeamGoals(tg, async () => { tg = await teamGoals(wSite); $('#tgc').innerHTML = goalsCard(); });
     if (b.dataset.act === 'newgirl') return newGirl();
+    if (b.dataset.act === 'tablet') { const { startTablet } = await import('./tablet.js'); return startTablet(sites, user); }
     const a = athletes.find(x => x.id === b.closest('[data-a]')?.dataset.a); if (!a) return;
     if (b.dataset.act === 'weigh') weighSheet(a);
     if (b.dataset.act === 'goal') openGoal(a);
