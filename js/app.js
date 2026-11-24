@@ -8,7 +8,7 @@ import { readOnlyPractice, printPractice } from './print.js';
 import { openShare } from './share.js';
 import { runChecks } from './check.js';
 import { openDictate } from './dictate.js';
-import { viewRoster, viewWeighIn, viewLineup, viewSizes, viewPaper, viewCheckins, viewMeets, viewKiosk, checkinSummary, goalIsToday, goalText, practiceGoalSheet, publishTeamGoal } from './roster.js';
+import { viewRoster, viewWeighIn, viewLineup, viewSizes, viewPaper, viewCheckins, viewMeets, viewKiosk, viewPhotoTest, checkinSummary, goalIsToday, goalText, practiceGoalSheet, publishTeamGoal } from './roster.js';
 import { TEAM_NAME, PROGRAM_NAME, MOTTO, OWNER_EMAIL } from './config.js';
 import { viewTablet, startTablet, tabletOn } from './tablet.js';
 
@@ -52,7 +52,7 @@ async function route() {
   if (name === '' && can(user, 'edit')) { shell('', ''); return viewToday(); }
   const views = {
     '': viewHome, practices: viewPractices, p: viewPractice, edit: viewEdit, new: viewNew, run: viewRun, live: viewLiveRun,
-    room: viewRoom, now: viewNow, roster: () => { shell('roster', ''); viewRoster($('main'), user); }, weighin: () => { shell('roster', ''); viewWeighIn($('main'), user); }, lineup: () => { shell('roster', ''); viewLineup($('main'), user); }, today: () => { shell('', ''); viewToday(); }, checkins: () => { shell('roster', ''); viewCheckins($('main'), user, id); }, kiosk: () => { shell('roster', ''); viewKiosk($('main'), user); }, meets: () => { shell('roster', ''); viewMeets($('main'), user, id); }, sizes: () => { shell('roster', ''); viewSizes($('main'), user); }, paper: () => { shell('roster', ''); viewPaper($('main'), user); }, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
+    room: viewRoom, now: viewNow, roster: () => { shell('roster', ''); viewRoster($('main'), user); }, weighin: () => { shell('roster', ''); viewWeighIn($('main'), user); }, lineup: () => { shell('roster', ''); viewLineup($('main'), user); }, phototest: () => { shell('roster', ''); viewPhotoTest($('main'), user); }, today: () => { shell('', ''); viewToday(); }, checkins: () => { shell('roster', ''); viewCheckins($('main'), user, id); }, kiosk: () => { shell('roster', ''); viewKiosk($('main'), user); }, meets: () => { shell('roster', ''); viewMeets($('main'), user, id); }, sizes: () => { shell('roster', ''); viewSizes($('main'), user); }, paper: () => { shell('roster', ''); viewPaper($('main'), user); }, library: viewLibrary, history: id ? viewRunDetail : viewHistory, admin: viewAdmin, check: viewCheck,
   };
   (views[name] || viewHome)(id);
 }

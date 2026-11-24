@@ -412,23 +412,24 @@ function editTeamGoals(tg, done) {
 const lineupId = (site) => `photo-${site && site !== 'all' ? site : 'team'}`;
 // Tries four ways to read a photo so any phone's picture works (big Android photos,
 // rotated photos, cloud-gallery files, blob URLs blocked, Safari HEIC).
+let decodeVia = '';
 async function decodeImage(file) {
-  const errors = [];
+  const errors = []; decodeVia = '';
   if (!file || !file.size) throw new Error('The photo came through empty. If it\'s in Google Photos, download it to the phone first, or take a screenshot of it.');
   if (window.createImageBitmap) {
     // 1) decode already shrunk: memory-safe for 50-200 MP phone photos
-    try { return await createImageBitmap(file, { imageOrientation: 'from-image', resizeWidth: 1400, resizeQuality: 'high' }); } catch (e) { errors.push('bitmap-resize: ' + (e.name || e.message)); }
+    try { const b = await createImageBitmap(file, { imageOrientation: 'from-image', resizeWidth: 1400, resizeQuality: 'high' }); decodeVia = 'bitmap-resize'; return b; } catch (e) { errors.push('bitmap-resize: ' + (e.name || e.message)); }
     // 2) full-size decode
-    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) { errors.push('bitmap: ' + (e.name || e.message)); }
+    try { const b = await createImageBitmap(file, { imageOrientation: 'from-image' }); decodeVia = 'bitmap'; return b; } catch (e) { errors.push('bitmap: ' + (e.name || e.message)); }
   }
   const viaImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => (i.naturalWidth ? res(i) : rej(new Error('empty'))); i.onerror = () => rej(new Error('img load failed')); i.src = src; });
   // 3) blob URL into <img>
   const url = URL.createObjectURL(file);
-  try { return await viaImg(url); } catch (e) { errors.push('img/blob: ' + e.message); } finally { setTimeout(() => URL.revokeObjectURL(url), 10000); }
+  try { const i = await viaImg(url); decodeVia = 'img/blob'; return i; } catch (e) { errors.push('img/blob: ' + e.message); } finally { setTimeout(() => URL.revokeObjectURL(url), 10000); }
   // 4) read the bytes as a data URL into <img> (works when blob URLs are blocked)
   try {
     const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error || new Error('read failed')); r.readAsDataURL(file); });
-    return await viaImg(dataUrl);
+    const i = await viaImg(dataUrl); decodeVia = 'img/data'; return i;
   } catch (e) { errors.push('img/data: ' + (e.name || e.message)); }
   const err = new Error('decode'); err.details = `${file.type || 'unknown type'}, ${Math.round(file.size / 1024)} KB · ${errors.join(' | ')}`; throw err;
 }
@@ -455,6 +456,27 @@ async function shrinkPhoto(file, maxW = 1400, q = 0.72) {
 }
 async function photoLoad(id) { try { const r = (await store.list('lineupphotos')).find(x => x.id === id); return r?.data ? r : null; } catch (e) { return null; } }
 async function photoSave(id, p) { await store.put('lineupphotos', id, { data: p.data, w: p.w, h: p.h }); }
+// Shrink, then save. If the save fails for any reason other than permissions, retry once with a smaller photo.
+async function uploadPhoto(file, id) {
+  let step = 'opening the photo', p;
+  try {
+    p = await shrinkPhoto(file);
+    step = 'saving to the team database';
+    try { await photoSave(id, p); }
+    catch (e) {
+      if (e?.code === 'permission-denied' || e?.code === 'unauthenticated') throw e;
+      step = 'saving a smaller copy';
+      p = await shrinkPhoto(file, 1000, 0.6); await photoSave(id, p);
+    }
+    return p;
+  } catch (e) { e.step = e.step || step; throw e; }
+}
+const photoErrText = (err) => {
+  const why = err?.code === 'permission-denied' ? 'Permission denied. The photo section of the Firestore rules isn\'t published yet.'
+    : err?.code === 'unauthenticated' ? 'You\'re signed out. Sign in again and retry.'
+    : (err?.message || String(err));
+  return `${why}\n\nDetails for Coach Josh: failed while ${err?.step || 'uploading'} · ${err?.code || err?.name || 'error'} · ${navigator.userAgent.replace(/^Mozilla\/5.0 /, '').slice(0, 120)}`;
+};
 async function photoRemove(id) { try { await store.del('lineupphotos', id); } catch (e) {} }
 
 // Turn face taps into rows: split by the biggest vertical gaps, front row = lowest in the photo,
@@ -523,7 +545,7 @@ export async function viewLineup(main, user) {
       <label class="field"><span class="tiny">Photo by (the paper credits this)</span><input class="input" id="lph" value="${esc(L.photographer || '')}" placeholder="Photographer's name"></label></div>
     <div class="card" style="margin-bottom:12px"><div class="row wrap between" style="gap:8px"><b>📷 Tag the team photo</b>
         <span class="row" style="gap:6px"><label class="btn primary sm"><span id="lupl">Upload photo</span><input type="file" id="lphoto" accept="image/*" hidden></label><button class="btn sm ghost hidden" id="lphdel">Remove photo</button></span></div>
-      <div class="small muted" style="margin-top:6px">Upload the photo, then tap it to open <b>full screen</b>. Pinch or double-tap to zoom, tap each face, and pick or type her name. Rows and left-to-right order build themselves. Saved for every coach. <span id="lsave"></span></div>
+      <div class="small muted" style="margin-top:6px">Upload the photo, then tap it to open <b>full screen</b>. Pinch or double-tap to zoom, tap each face, and pick or type her name. Rows and left-to-right order build themselves. Saved for every coach. <span id="lsave"></span> <a href="#/phototest" style="color:var(--gold)">Upload not working? Run the photo test</a></div>
       <div class="phprev hidden" id="phwrap"><div class="ph" id="ph"><img id="phimg" alt="Team photo"><div id="phtags"></div></div><div class="phopen">⤢ Tap to tag full screen</div></div></div>
     <div class="small muted" style="margin-bottom:8px" id="lhow">No photo? Tap a row, then tap names in order from <b>left to right</b> as you look at the photo. Drag a name to fix the order; ✕ removes it.</div>
     <div id="rows" class="stack"></div>
@@ -565,10 +587,10 @@ export async function viewLineup(main, user) {
   $('#lphoto').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     $('#lupl').textContent = 'Uploading…';
-    try { const p = await shrinkPhoto(f); await photoSave(lineupId(L.site), p); showPhoto(p); toast('Photo saved. Tap it to tag faces.', 'success'); openFull(); }
+    try { const p = await uploadPhoto(f, lineupId(L.site)); showPhoto(p); toast('Photo saved. Tap it to tag faces.', 'success'); openFull(); }
     catch (err) { console.error(err); $('#lupl').textContent = photo ? 'Replace photo' : 'Upload photo';
-      const msg = err?.code === 'permission-denied' ? 'Permission denied. The photo section of the rules isn\'t published yet.' : err?.code ? err.code + ': ' + (err.message || '') : (err?.message || String(err));
-      modal({ title: 'Photo not saved', body: `<p style="white-space:pre-wrap">${esc(msg)}</p>`, footer: '<button class="btn primary" data-act="close">OK</button>' }); }
+      modal({ title: 'Photo not saved', body: `<p style="white-space:pre-wrap">${esc(photoErrText(err))}</p><p class="small muted">Run the photo test below and send Coach Josh a screenshot.</p>`,
+        footer: '<a class="btn" href="#/phototest" data-act="close">🧪 Run the photo test</a><button class="btn primary" data-act="close">OK</button>' }); }
     e.target.value = '';
   };
   $('#lphdel').onclick = async () => { if (!(await confirmBox('Remove the photo?', 'Removes the photo and its name tags for every coach. Names stay on the roster.', 'Remove'))) return;
@@ -979,3 +1001,44 @@ export async function viewMeets(main, user, id) {
 
 // ---- Quick check-in: tap your name, weight (optional), done ---------------------
 export async function viewKiosk(main, user) { return viewWeighIn(main, user); }
+
+
+// ---- Photo test: runs every upload step on this device and shows which one fails.
+export async function viewPhotoTest(main, user) {
+  main.innerHTML = `<div class="page-head"><div><h1>Photo test</h1><div class="small muted">Checks each step of the team-photo upload on this phone.</div></div><a class="btn ghost sm" href="#/lineup">← Team photo</a></div>
+    <div class="card stack"><b>1. Pick the team photo (or any photo)</b>
+      <label class="btn primary lg" style="width:100%">📷 Choose a photo<input type="file" id="ptf" accept="image/*" hidden></label></div>
+    <div class="plist" id="ptout" style="margin-top:12px"></div>
+    <div class="row wrap hidden" id="ptdone" style="gap:8px;margin-top:12px"><button class="btn" id="ptcopy">📋 Copy results</button><span class="small muted">Then text it to Coach Josh, or screenshot this screen.</span></div>`;
+  const lines = [];
+  const add = (ok, label, detail = '') => { lines.push(`${ok === true ? 'PASS' : ok === false ? 'FAIL' : 'INFO'} ${label}${detail ? ' · ' + detail : ''}`);
+    $('#ptout').insertAdjacentHTML('beforeend', `<div class="prow"><span style="font-size:20px">${ok === true ? '✅' : ok === false ? '❌' : 'ℹ️'}</span><div class="grow" style="min-width:0"><div class="pr-t" style="text-transform:none">${esc(label)}</div>${detail ? `<div class="pr-s" style="word-break:break-word">${esc(detail)}</div>` : ''}</div></div>`); };
+  $('#ptf').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    $('#ptout').innerHTML = ''; lines.length = 0; $('#ptdone').classList.add('hidden');
+    add(null, 'Device', navigator.userAgent);
+    add(null, 'Signed in as', `${user.email} · ${user.role}`);
+    add(!!f.size, 'Photo received', `${f.type || 'no type'} · ${Math.round(f.size / 1024)} KB · ${f.name || ''}`);
+    let p = null;
+    try { p = await shrinkPhoto(f); add(true, 'Opened and shrunk the photo', `via ${decodeVia} · ${p.w}×${p.h} · ${Math.round(p.data.length / 1024)} KB`); }
+    catch (err) { add(false, 'Opening the photo', err.message); }
+    const tid = `test-${(user.uid || user.email || 'me').replace(/[^a-z0-9]/gi, '').slice(0, 20)}`;
+    try { await store.put('lineupphotos', tid, { data: 'x', w: 1, h: 1 }); add(true, 'Saved a tiny test to the database'); }
+    catch (err) { add(false, 'Saving a tiny test to the database', `${err.code || err.name || ''} ${err.message || ''}`); }
+    if (p) {
+      const t0 = Date.now();
+      try { await store.put('lineupphotos', tid, { data: p.data, w: p.w, h: p.h }); add(true, 'Saved the full photo', `${((Date.now() - t0) / 1000).toFixed(1)} s`); }
+      catch (err) { add(false, 'Saving the full photo', `${err.code || err.name || ''} ${err.message || ''}`);
+        try { const q = await shrinkPhoto(f, 1000, 0.6); await store.put('lineupphotos', tid, { data: q.data, w: q.w, h: q.h }); add(true, 'Saved a smaller copy', `${Math.round(q.data.length / 1024)} KB`); }
+        catch (err2) { add(false, 'Saving a smaller copy', `${err2.code || err2.name || ''} ${err2.message || ''}`); } }
+      try { const back = (await store.list('lineupphotos')).find(x => x.id === tid); add(!!back?.data, 'Read it back', back?.data ? `${Math.round(back.data.length / 1024)} KB` : 'not found'); }
+      catch (err) { add(false, 'Reading it back', `${err.code || ''} ${err.message || ''}`); }
+    }
+    try { await store.del('lineupphotos', tid); } catch {}
+    const bad = lines.find(l => l.startsWith('FAIL'));
+    add(bad ? false : true, bad ? 'Result: something failed (see the ❌ above)' : 'Result: everything works on this phone. Try the upload again.');
+    $('#ptdone').classList.remove('hidden');
+    e.target.value = '';
+  };
+  $('#ptcopy').onclick = async () => { const t = 'Photo test\n' + lines.join('\n'); try { await navigator.clipboard.writeText(t); toast('Copied', 'success'); } catch { prompt('Copy this:', t); } };
+}
