@@ -1,13 +1,60 @@
 {
-  "name": "Champion Making Process · Bluejays Girls Wrestling",
+  "name": "Champion Making Process \u00b7 Bluejays Girls Wrestling",
   "short_name": "Practice",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0b1020",
-  "theme_color": "#0b1020",
+  "background_color": "#080d1a",
+  "theme_color": "#080d1a",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "id": "./",
+  "description": "Practice planning, live timer and check-in for Bluejays Girls Wrestling",
+  "orientation": "any",
+  "shortcuts": [
+    {
+      "name": "Check-in",
+      "short_name": "Check-in",
+      "url": "./#/weighin",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Plans",
+      "short_name": "Plans",
+      "url": "./#/practices",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "short_name": "Team",
+      "url": "./#/roster",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

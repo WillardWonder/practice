@@ -103,12 +103,18 @@ function userMenu() {
     <label class="field" id="mysite-wrap"><span class="tiny">My building</span><select class="input" id="mysite"><option value="">Loading…</option></select></label>
     <button class="btn lg" style="width:100%" data-act="sound">🔊 Sound & voice settings (this device)</button>
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:8px"><a class="btn" href="#/room">📺 Room TV</a><a class="btn" href="#/now">● Live, all buildings</a>${can(user, 'admin') ? '<a class="btn" href="#/admin">⚙ Admin</a>' : ''}</div>
+    ${installed() ? '' : '<button class="btn lg primary" style="width:100%" data-act="install">⬇ Install as an app</button>'}
     <a class="btn lg" style="width:100%" href="#/check">✓ Check my access</a>
     ${isFirebase ? '<button class="btn lg danger" style="width:100%" data-act="out">Sign out</button>' : ''}
     <div class="motto small" style="margin-top:12px">${MOTTO.map(esc).join('<span>•</span>')}</div></div>`,
     onAction: async (a, el, w, close) => {
       if (a === 'out') { close(); await store.signOut(); location.hash = '#/'; }
       if (a === 'sound') { close(); settingsModal(); }
+      if (a === 'install') {
+        if (installEvt) { close(); installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; }); return; }
+        const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+        w.querySelector('[data-act=install]').outerHTML = `<div class="card small" style="line-height:1.5">${ios ? 'On iPhone/iPad: open this site in <b>Safari</b>, tap <b>Share ⬆</b>, then <b>Add to Home Screen</b>.' : 'In <b>Chrome</b>: tap the <b>⋮</b> menu (top right), then <b>Install app</b> (or <b>Add to Home screen</b>).'}</div>`;
+      }
       if (el.tagName === 'A') close();
     } });
   $$('.overlay a').forEach(a => a.addEventListener('click', () => $('.overlay')?.remove()));
@@ -661,4 +667,8 @@ async function viewCheck() {
   };
 }
 
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; });
+window.addEventListener('appinstalled', () => { installEvt = null; toast('Installed. Open it from your home screen.', 'success'); });
+const installed = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

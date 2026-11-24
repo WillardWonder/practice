@@ -2,7 +2,7 @@
 // updates right away) and falls back to the last cached copy if the gym
 // Wi-Fi drops. Firebase traffic is never cached here; Firestore has its own
 // offline cache.
-const CACHE = 'practice-shell-v1';
+const CACHE = 'practice-shell-v2';
 self.addEventListener('install', (e) => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {
